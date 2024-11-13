@@ -1,0 +1,159 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(oasisId) {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/oasis/$(oasisId)) &&
+        get(/databases/$(database)/documents/oasis/$(oasisId)).data.ownerId == request.auth.uid;
+    }
+
+    function isAdmin(oasisId) {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/oasis/$(oasisId)/members/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/oasis/$(oasisId)/members/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isModerator(oasisId) {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/oasis/$(oasisId)/members/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/oasis/$(oasisId)/members/$(request.auth.uid)).data.role == 'moderator';
+    }
+
+    function isMember(oasisId) {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/oasis/$(oasisId)/members/$(request.auth.uid));
+    }
+
+    function hasModeratorAccess(oasisId) {
+      return isOwner(oasisId) || isAdmin(oasisId) || isModerator(oasisId);
+    }
+
+    function hasAdminAccess(oasisId) {
+      return isOwner(oasisId) || isAdmin(oasisId);
+    }
+
+    // Allow all authenticated users to read and write to their own user document
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && request.auth.uid == userId;
+      
+      match /createdOasis/{oasisId} {
+        allow read, write: if request.auth.uid == userId;
+      }
+      
+      match /joinedOasis/{oasisId} {
+        allow read, write: if request.auth.uid == userId;
+      }
+
+      match /bannedUsers/{bannedUserId} {
+        allow read: if hasModeratorAccess(oasisId);
+        allow write: if hasModeratorAccess(oasisId);
+      }
+      
+      match /{document=**} {
+        allow read, write: if request.auth.uid == userId;
+      }
+    }
+
+    // Oasis collection
+    match /oasis/{oasisId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isOwner(oasisId) || 
+        (isAuthenticated() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['theme']));
+      allow delete: if isOwner(oasisId);
+
+      // Members subcollection
+      match /members/{memberId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated();
+        allow update: if isOwner(oasisId) || isAdmin(oasisId) || (memberId == request.auth.uid);
+        allow delete: if isOwner(oasisId) || (memberId == request.auth.uid);
+      }
+
+      // Admin calls subcollection
+      match /adminCalls/{callId} {
+        allow read: if hasAdminAccess(oasisId);
+        allow create: if hasAdminAccess(oasisId);
+        allow update: if hasAdminAccess(oasisId);
+        allow delete: if hasAdminAccess(oasisId);
+        
+        match /messages/{messageId} {
+          allow read: if hasAdminAccess(oasisId);
+          allow write: if hasAdminAccess(oasisId);
+        }
+      }
+
+      // Admin messages subcollection
+      match /adminMessages/{messageId} {
+        allow read: if hasAdminAccess(oasisId);
+        allow create: if hasAdminAccess(oasisId) || 
+          (request.resource.data.author == 'System' && 
+           request.resource.data.authorRole == 'System');
+        allow update, delete: if hasAdminAccess(oasisId);
+      }
+
+      // Roles subcollection
+      match /roles/{roleId} {
+        allow read: if isAuthenticated();
+        allow write: if isOwner(oasisId) || isAdmin(oasisId);
+      }
+
+      // Posts subcollection
+      match /posts/{postId} {
+        allow read: if isAuthenticated();
+        allow create: if isMember(oasisId);
+        allow update, delete: if hasModeratorAccess(oasisId) || 
+          (resource.data.authorId == request.auth.uid);
+      }
+
+      // Messages subcollection
+      match /messages/{messageId} {
+        allow read: if isMember(oasisId);
+        allow create: if isMember(oasisId);
+        allow update, delete: if hasModeratorAccess(oasisId) || 
+          (resource.data.authorId == request.auth.uid);
+      }
+
+      // Banned members subcollection
+      match /bannedMembers/{userId} {
+        allow read, write: if hasModeratorAccess(oasisId);
+      }
+
+      // Banned users collection (global)
+      match /bannedUsers/{userId} {
+        allow read, write: if hasModeratorAccess(oasisId);
+      }
+
+      // Unban requests subcollection
+      match /unbanRequests/{requestId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated();
+        allow update, delete: if hasModeratorAccess(oasisId);
+      }
+
+      // Allow access to all other subcollections based on role
+      match /{collection}/{document} {
+        allow read: if isAuthenticated();
+        allow write: if hasModeratorAccess(oasisId);
+      }
+    }
+
+    // System-wide collections
+    match /system/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if false;
+    }
+
+    // Presence system
+    match /presence/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if request.auth.uid == userId;
+    }
+  }
+}
