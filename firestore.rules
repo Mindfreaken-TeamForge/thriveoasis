@@ -87,6 +87,16 @@ service cloud.firestore {
             allow delete: if isSignedIn() && request.auth.uid == resource.data.userId;
           }
         }
+        
+        // Posts subcollection
+        match /posts/{postId} {
+          allow read: if isMember(oasisId);
+          allow create: if isMember(oasisId) && hasPermission(oasisId, 'send_messages');
+          allow update: if request.auth.uid == resource.data.authorId || 
+            hasPermission(oasisId, 'moderate_content');
+          allow delete: if request.auth.uid == resource.data.authorId || 
+            hasPermission(oasisId, 'moderate_content');
+        }
       }
     }
 

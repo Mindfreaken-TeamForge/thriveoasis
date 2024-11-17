@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Hash } from 'lucide-react';
-import { db } from '../../../firebase';
-import { collection, query, orderBy, onSnapshot, limit, startAfter, getDocs, Timestamp, serverTimestamp } from 'firebase/firestore';
+import { db, auth } from '../../../firebase';
+import { collection, query, orderBy, onSnapshot, limit, startAfter, getDocs, Timestamp, serverTimestamp, doc, getDoc } from 'firebase/firestore';
 import PostComponent from './Post';
 import NotificationBell from '../../NotificationBell';
 import { ThemeColors } from '../../../themes';
@@ -84,56 +84,75 @@ const Community: React.FC<CommunityProps> = ({
   useEffect(() => {
     if (!oasisId) return;
 
-    const postsRef = collection(db, 'oasis', oasisId, 'posts');
-    const q = query(
-      postsRef, 
-      orderBy('timestamp', 'desc'), 
-      limit(MESSAGES_PER_PAGE)
-    );
+    const user = auth.currentUser;
+    if (!user) {
+      console.error('No authenticated user');
+      return;
+    }
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      // Count total attachments for initial load
-      if (isInitialLoad) {
-        totalAttachments.current = snapshot.docs.filter(doc => doc.data().attachment).length;
-        attachmentLoadCount.current = 0;
+    // Check member status
+    const memberRef = doc(db, 'oasis', oasisId, 'members', user.uid);
+    getDoc(memberRef).then(memberDoc => {
+      if (!memberDoc.exists()) {
+        console.error('User is not a member of this oasis');
+        return;
       }
+      console.log('Member permissions:', memberDoc.data().permissions);
+      
+      // Only set up posts listener if user is a member
+      const postsRef = collection(db, 'users', user.uid, 'oasis', oasisId, 'posts');
+      const q = query(
+        postsRef, 
+        orderBy('timestamp', 'desc'), 
+        limit(MESSAGES_PER_PAGE)
+      );
 
-      const newPosts = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        timestamp: doc.data().timestamp?.toDate() || new Date(),
-      })) as Post[];
-
-      setLastVisible(snapshot.docs[snapshot.docs.length - 1]);
-      setPosts(newPosts.reverse());
-
-      if (lastPostTimestamp.current && 
-          newPosts[0]?.timestamp > lastPostTimestamp.current &&
-          !isInitialLoad) {
-        notificationSound.current.play().catch(() => {});
-        scrollToBottom();
-      }
-
-      lastPostTimestamp.current = newPosts[0]?.timestamp || null;
-
-      if (!initialLoadComplete.current) {
-        initialLoadComplete.current = true;
-        if (totalAttachments.current === 0) {
-          scrollToBottom(true);
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        // Count total attachments for initial load
+        if (isInitialLoad) {
+          totalAttachments.current = snapshot.docs.filter(doc => doc.data().attachment).length;
+          attachmentLoadCount.current = 0;
         }
-      }
-    }, (error) => {
-      console.error('Error fetching posts:', error);
-    });
 
-    return () => {
-      unsubscribe();
-      setIsInitialLoad(true);
-      initialLoadComplete.current = false;
-      if (scrollTimeout.current) {
-        clearTimeout(scrollTimeout.current);
-      }
-    };
+        const newPosts = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data(),
+          timestamp: doc.data().timestamp?.toDate() || new Date(),
+        })) as Post[];
+
+        setLastVisible(snapshot.docs[snapshot.docs.length - 1]);
+        setPosts(newPosts.reverse());
+
+        if (lastPostTimestamp.current && 
+            newPosts[0]?.timestamp > lastPostTimestamp.current &&
+            !isInitialLoad) {
+          notificationSound.current.play().catch(() => {});
+          scrollToBottom();
+        }
+
+        lastPostTimestamp.current = newPosts[0]?.timestamp || null;
+
+        if (!initialLoadComplete.current) {
+          initialLoadComplete.current = true;
+          if (totalAttachments.current === 0) {
+            scrollToBottom(true);
+          }
+        }
+      }, (error) => {
+        console.error('Error fetching posts:', error);
+      });
+
+      return () => {
+        unsubscribe();
+        setIsInitialLoad(true);
+        initialLoadComplete.current = false;
+        if (scrollTimeout.current) {
+          clearTimeout(scrollTimeout.current);
+        }
+      };
+    }).catch(error => {
+      console.error('Error checking member status:', error);
+    });
   }, [oasisId]);
 
   const loadMoreMessages = async () => {

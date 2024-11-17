@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { Send, Paperclip, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { auth, db, storage } from '@/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDoc, doc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useToast } from '@/components/ui/use-toast';
 import { ThemeColors } from '@/themes';
@@ -83,6 +83,21 @@ const CreatePost: React.FC<CreatePostProps> = ({
     }
   };
 
+  const checkPermissions = async () => {
+    const user = auth.currentUser;
+    if (!user) return false;
+    
+    const memberRef = doc(db, 'oasis', oasisId, 'members', user.uid);
+    const memberDoc = await getDoc(memberRef);
+    
+    if (!memberDoc.exists()) return false;
+    
+    const permissions = memberDoc.data().permissions || [];
+    return permissions.includes('send_messages') || 
+           permissions.includes('administrator') ||
+           memberDoc.data().role === 'owner';
+  };
+
   const handlePostSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const user = auth.currentUser;
@@ -91,6 +106,15 @@ const CreatePost: React.FC<CreatePostProps> = ({
       toast({
         title: 'Error',
         description: 'You must be logged in to post.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!(await checkPermissions())) {
+      toast({
+        title: 'Error',
+        description: 'You do not have permission to post messages',
         variant: 'destructive',
       });
       return;
@@ -125,7 +149,7 @@ const CreatePost: React.FC<CreatePostProps> = ({
       }
 
       // Create post with attachment data if present
-      await addDoc(collection(db, 'oasis', oasisId, 'posts'), {
+      await addDoc(collection(db, 'users', user.uid, 'oasis', oasisId, 'posts'), {
         author: user.displayName || 'Anonymous',
         authorId: user.uid,
         content: newPost.trim(),
