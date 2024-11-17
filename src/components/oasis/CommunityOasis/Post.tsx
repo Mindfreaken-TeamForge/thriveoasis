@@ -240,7 +240,7 @@ const Post: React.FC<PostProps> = ({
 
     if (type.startsWith('image/')) {
       return (
-        <div className="mt-2 relative group">
+        <div className="relative mt-2 group">
           <img
             src={url}
             alt={name}
@@ -347,7 +347,45 @@ const Post: React.FC<PostProps> = ({
                   {post.content}
                 </p>
               )}
-              {renderAttachment()}
+              {post.attachment && (
+                <div className="relative mt-2 group">
+                  {post.attachment.type.startsWith('image/') ? (
+                    <div className="relative inline-block">
+                      <img
+                        src={post.attachment.url}
+                        alt={post.attachment.name}
+                        className="max-w-[300px] rounded-lg"
+                        onLoad={onAttachmentLoad}
+                      />
+                      <a
+                        href={post.attachment.url}
+                        download={post.attachment.name}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="absolute top-2 right-2 p-2 rounded-full bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity z-10 hover:bg-black/70"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Download className="w-4 h-4 text-white" />
+                      </a>
+                    </div>
+                  ) : (
+                    <div className="relative inline-flex items-center p-3 rounded-lg bg-gray-800 group max-w-[300px]">
+                      <FileText className="w-5 h-5 mr-2 text-gray-400" />
+                      <span className="text-sm truncate">{post.attachment.name}</span>
+                      <a
+                        href={post.attachment.url}
+                        download={post.attachment.name}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="absolute right-2 p-2 rounded-full hover:bg-gray-700 z-10"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Download className="w-4 h-4 text-gray-400" />
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
