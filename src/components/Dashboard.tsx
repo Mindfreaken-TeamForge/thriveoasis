@@ -8,6 +8,7 @@ import CombinedNavigation from './dashboard/CombinedNavigation';
 import OasisCreationModal from './OasisCreationModal';
 import { createOasis, getOasisDetails } from '@/services/oasisService';
 import { themes } from '@/themes';
+import type { ThemeMode } from '@/components/ThemeSelector/ThemeMode';
 
 interface Oasis {
   id: string;
@@ -17,6 +18,7 @@ interface Oasis {
   imageUrl?: string;
   isLocked?: boolean;
   theme: string;
+  themeMode?: ThemeMode;
   ownerId: string;
   memberCount?: number;
 }
@@ -156,7 +158,7 @@ export default function Dashboard({ user, onLogout }: DashboardProps) {
           onCreateOasis={async (oasisData) => {
             if (!user) return;
             try {
-              await createOasis(oasisData);
+              await createOasis(user.uid, oasisData);
               setOasis(prev => [...prev, { ...oasisData, ownerId: user.uid }]);
               setIsOasisOnboardingOpen(false);
               toast({

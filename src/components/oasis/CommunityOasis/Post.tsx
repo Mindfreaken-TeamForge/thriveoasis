@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Flag, SmilePlus, Trash2, Edit2, History, X, Check } from 'lucide-react';
+import { Flag, SmilePlus, Trash2, Edit2, History, X, Check, Image, FileText, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { auth, db } from '@/firebase';
@@ -9,19 +9,21 @@ import { ThemeColors } from '@/themes';
 import ReportDialog from './ReportDialog';
 import ReactionPicker from './ReactionPicker';
 import Reactions from './Reactions';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { doc, updateDoc, arrayUnion, arrayRemove, deleteDoc, Timestamp } from 'firebase/firestore';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import type { ThemeMode } from '@/components/ThemeSelector/ThemeMode';
 
 interface EditHistory {
   content: string;
   editedAt: Timestamp | Date;
   editedBy: string;
+}
+
+interface Attachment {
+  url: string;
+  name: string;
+  type: string;
+  size: number;
 }
 
 interface Post {
@@ -32,23 +34,28 @@ interface Post {
   reactions?: Record<string, { count: number; users: string[] }>;
   timestamp: Date;
   editHistory?: EditHistory[];
-  attachment?: {
-    url: string;
-    name: string;
-    type: string;
-    size: number;
-  };
+  attachment?: Attachment;
 }
 
 interface PostProps {
   post: Post;
   oasisId: string;
   themeColors: ThemeColors;
+  themeMode?: ThemeMode;
   isFirstInGroup: boolean;
   previousPost?: Post;
+  onAttachmentLoad?: () => void;
 }
 
-const Post: React.FC<PostProps> = ({ post, oasisId, themeColors, isFirstInGroup, previousPost }) => {
+const Post: React.FC<PostProps> = ({ 
+  post, 
+  oasisId, 
+  themeColors,
+  themeMode = 'gradient',
+  isFirstInGroup, 
+  previousPost,
+  onAttachmentLoad
+}) => {
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
   const [isReactionPickerOpen, setIsReactionPickerOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -57,6 +64,19 @@ const Post: React.FC<PostProps> = ({ post, oasisId, themeColors, isFirstInGroup,
   const [pickerAnchorEl, setPickerAnchorEl] = useState<HTMLButtonElement | null>(null);
   const { toast } = useToast();
   const currentUser = auth.currentUser;
+
+  const getBackground = () => {
+    switch (themeMode) {
+      case 'gradient':
+        return `linear-gradient(145deg, ${themeColors.primary}20, ${themeColors.secondary}20)`;
+      case 'primary':
+        return `${themeColors.primary}20`;
+      case 'secondary':
+        return `${themeColors.secondary}20`;
+      default:
+        return 'rgba(17, 24, 39, 0.3)';
+    }
+  };
 
   const canModifyPost = currentUser && (
     post.authorId === currentUser.uid ||
@@ -201,14 +221,73 @@ const Post: React.FC<PostProps> = ({ post, oasisId, themeColors, isFirstInGroup,
       }))
     : [];
 
+  const formatFileSize = (bytes: number) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const handleImageLoad = () => {
+    onAttachmentLoad?.();
+  };
+
+  const renderAttachment = () => {
+    if (!post.attachment) return null;
+
+    const { type, url, name, size } = post.attachment;
+
+    if (type.startsWith('image/')) {
+      return (
+        <div className="mt-2 relative group">
+          <img
+            src={url}
+            alt={name}
+            className="max-w-md max-h-96 rounded-lg object-contain bg-black/20"
+            onLoad={handleImageLoad}
+          />
+          <a
+            href={url}
+            download={name}
+            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <Button size="sm" className="bg-black/50 hover:bg-black/70">
+              <Download className="w-4 h-4" />
+            </Button>
+          </a>
+        </div>
+      );
+    }
+
+    return (
+      <div className="mt-2">
+        <a
+          href={url}
+          download={name}
+          className="flex items-center space-x-2 p-3 bg-gray-800/50 rounded-lg hover:bg-gray-800/70 transition-colors w-fit"
+          onLoad={handleImageLoad}
+        >
+          <FileText className="w-5 h-5 text-blue-400" />
+          <div className="flex flex-col">
+            <span className="text-sm text-white">{name}</span>
+            <span className="text-xs text-gray-400">{formatFileSize(size)}</span>
+          </div>
+          <Download className="w-4 h-4 text-gray-400" />
+        </a>
+      </div>
+    );
+  };
+
   return (
     <>
       <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
         className={`group relative px-4 py-2 hover:bg-gray-800/30 transition-colors ${
           shouldShowHeader() ? 'mt-4' : 'mt-0.5'
         }`}
+        style={{
+          background: getBackground(),
+        }}
       >
         {shouldShowHeader() && (
           <div className="flex items-center space-x-2 mb-2">
@@ -262,9 +341,14 @@ const Post: React.FC<PostProps> = ({ post, oasisId, themeColors, isFirstInGroup,
               </div>
             </div>
           ) : (
-            <p className="text-white whitespace-pre-wrap break-words pr-16 leading-relaxed ml-10">
-              {post.content}
-            </p>
+            <div className="ml-10">
+              {post.content && (
+                <p className="text-white whitespace-pre-wrap break-words pr-16 leading-relaxed">
+                  {post.content}
+                </p>
+              )}
+              {renderAttachment()}
+            </div>
           )}
 
           <div className="ml-10">
@@ -333,35 +417,6 @@ const Post: React.FC<PostProps> = ({ post, oasisId, themeColors, isFirstInGroup,
         oasisId={oasisId}
         themeColors={themeColors}
       />
-
-      <Dialog open={isHistoryDialogOpen} onOpenChange={setIsHistoryDialogOpen}>
-        <DialogContent className="bg-gray-900 text-white border-gray-700">
-          <DialogHeader>
-            <DialogTitle>Edit History</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            {post.editHistory?.map((edit, index) => (
-              <div key={index} className="border border-gray-700 rounded-lg p-4">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm text-gray-400">
-                    Edited by {edit.editedBy}
-                  </span>
-                  <span className="text-sm text-gray-400">
-                    {formatEditTime(edit.editedAt)}
-                  </span>
-                </div>
-                <p className="text-white whitespace-pre-wrap">{edit.content}</p>
-              </div>
-            ))}
-            <div className="border border-gray-700 rounded-lg p-4">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-sm text-gray-400">Current version</span>
-              </div>
-              <p className="text-white whitespace-pre-wrap">{post.content}</p>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </>
   );
 };

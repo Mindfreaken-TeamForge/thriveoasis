@@ -182,7 +182,7 @@ const TokenManager: React.FC<TokenManagerProps> = ({ oasisId, userRole }) => {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent 
-          className="w-[200px] bg-gray-800 border-gray-700 z-[9999]"
+          className="w-[200px] bg-gray-800 border-gray-700"
           align="end"
           sideOffset={5}
         >
@@ -206,12 +206,19 @@ const TokenManager: React.FC<TokenManagerProps> = ({ oasisId, userRole }) => {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <InviteModal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        onCreateToken={handleCreateToken}
-        canCreatePermanentTokens={canCreatePermanentTokens}
-      />
+      <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
+        <DialogContent className="bg-gray-900 text-white border-gray-700 max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold">Create New Invite</DialogTitle>
+          </DialogHeader>
+          <InviteModal
+            isOpen={true}
+            onClose={() => setIsCreateModalOpen(false)}
+            onCreateToken={handleCreateToken}
+            canCreatePermanentTokens={canCreatePermanentTokens}
+          />
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isListModalOpen} onOpenChange={setIsListModalOpen}>
         <DialogContent className="bg-gray-900 text-white border-gray-700 max-w-4xl">

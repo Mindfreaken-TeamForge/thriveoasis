@@ -20,9 +20,14 @@ interface OasisData {
   color: string;
   imageUrl?: string;
   theme: string;
+  themeMode: ThemeMode;
   ownerId: string;
   memberCount?: number;
   tier?: string;
+  features?: string[];
+  extraEmotes?: number;
+  extraStickers?: number;
+  monthlyPrice?: number;
 }
 
 interface OasisCreationModalProps {
@@ -30,6 +35,8 @@ interface OasisCreationModalProps {
   onCreateOasis: (oasisData: OasisData) => void;
   initialOasisName: string;
 }
+
+type ThemeMode = 'gradient' | 'primary' | 'secondary';
 
 const OasisCreationModal: React.FC<OasisCreationModalProps> = ({
   onClose,
@@ -45,14 +52,16 @@ const OasisCreationModal: React.FC<OasisCreationModalProps> = ({
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [selectedTheme, setSelectedTheme] = useState<string>('Thrive Oasis(Default)');
+  const [selectedThemeMode, setSelectedThemeMode] = useState<ThemeMode>('gradient');
+  const [isUploading, setIsUploading] = useState(false);
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const shinyBlackButtonStyle: React.CSSProperties = {
-    background: 'linear-gradient(145deg, #2c3e50, #1a2533)',
+    background: 'linear-gradient(145deg, #38bdf8, #0284c7)',
     color: '#fff',
     textShadow: '0 0 5px rgba(255,255,255,0.5)',
-    boxShadow: '0 0 10px rgba(0,0,0,0.5), inset 0 0 5px rgba(255,255,255,0.2)',
+    boxShadow: '0 0 10px rgba(56, 189, 248, 0.5), inset 0 0 5px rgba(255,255,255,0.3)',
     border: 'none',
     transition: 'all 0.1s ease',
     display: 'flex',
@@ -61,6 +70,39 @@ const OasisCreationModal: React.FC<OasisCreationModalProps> = ({
     fontSize: '0.875rem',
     fontWeight: '500',
     padding: '0.5rem 1rem',
+    minHeight: '36px',
+    width: 'auto',
+    borderRadius: '0.5rem',
+  };
+
+  const selectedButtonStyle: React.CSSProperties = {
+    ...shinyBlackButtonStyle,
+    background: 'linear-gradient(145deg, #2c3e50, #1a2533)',
+    boxShadow: '0 0 10px rgba(0,0,0,0.5), inset 0 0 5px rgba(255,255,255,0.2)',
+  };
+
+  const navigationButtonStyle: React.CSSProperties = {
+    background: 'linear-gradient(145deg, #1e293b, #0f172a)',
+    color: '#fff',
+    textShadow: '0 0 5px rgba(255,255,255,0.3)',
+    boxShadow: '0 0 15px rgba(15, 23, 42, 0.3), inset 0 0 5px rgba(255,255,255,0.1)',
+    border: 'none',
+    transition: 'all 0.2s ease',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '0.875rem',
+    fontWeight: '600',
+    padding: '0.5rem 1rem',
+    minHeight: '40px',
+    borderRadius: '0.5rem',
+    opacity: 0.9
+  };
+
+  const navigationButtonActiveStyle: React.CSSProperties = {
+    ...navigationButtonStyle,
+    background: 'linear-gradient(145deg, #475569, #334155)',
+    boxShadow: '0 0 20px rgba(71, 85, 105, 0.4), inset 0 0 5px rgba(255,255,255,0.2)',
   };
 
   const handleNext = useCallback(() => {
@@ -138,14 +180,34 @@ const OasisCreationModal: React.FC<OasisCreationModalProps> = ({
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setImageFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    // Validate file size (5MB max)
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: 'Error',
+        description: 'Image size must be less than 5MB',
+        variant: 'destructive',
+      });
+      return;
     }
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: 'Error',
+        description: 'File must be an image',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setImageFile(file);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setImagePreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
   };
 
   const triggerFileInput = () => {
@@ -155,21 +217,47 @@ const OasisCreationModal: React.FC<OasisCreationModalProps> = ({
   const uploadImage = async (): Promise<string | null> => {
     if (!imageFile) return null;
 
-    const storage = getStorage();
-    const imageRef = ref(storage, `oasis-images/${Date.now()}-${imageFile.name}`);
-
-    try {
-      const snapshot = await uploadBytes(imageRef, imageFile);
-      const downloadURL = await getDownloadURL(snapshot.ref);
-      return downloadURL;
-    } catch (error) {
-      console.error('Error uploading image:', error);
+    const user = auth.currentUser;
+    if (!user) {
       toast({
         title: 'Error',
-        description: 'Failed to upload image. Please try again.',
+        description: 'You must be logged in to upload images',
         variant: 'destructive',
       });
       return null;
+    }
+
+    setIsUploading(true);
+
+    try {
+      const storage = getStorage();
+      const timestamp = Date.now();
+      const fileExtension = imageFile.name.split('.').pop();
+      const fileName = `oasis-images/${timestamp}.${fileExtension}`;
+      const imageRef = ref(storage, fileName);
+
+      const metadata = {
+        contentType: imageFile.type,
+        customMetadata: {
+          uploadedBy: user.uid,
+          originalName: imageFile.name,
+          timestamp: timestamp.toString(),
+        },
+      };
+
+      const snapshot = await uploadBytes(imageRef, imageFile, metadata);
+      const downloadURL = await getDownloadURL(snapshot.ref);
+      return downloadURL;
+    } catch (error: any) {
+      console.error('Error uploading image:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to upload image. Please try again.',
+        variant: 'destructive',
+      });
+      return null;
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -196,29 +284,26 @@ const OasisCreationModal: React.FC<OasisCreationModalProps> = ({
       const imageUrl = await uploadImage();
       const color = `#${Math.floor(Math.random() * 16777215).toString(16)}`;
 
-      const oasisData = {
+      const oasisData: OasisData = {
         name: initialOasisName,
         type: selectedOasisType,
         types: [selectedOasisType],
         color,
-        imageUrl: imageUrl || null,
+        ...(imageUrl && { imageUrl }),
         theme: selectedTheme,
+        themeMode: selectedThemeMode,
         features: selectedFeatures,
         extraEmotes,
         extraStickers,
         monthlyPrice: calculateTotalPrice(),
-        tier: selectedTier
+        tier: selectedTier,
+        ownerId: user.uid,
+        memberCount: 1
       };
 
       const oasisId = await createOasis(user.uid, oasisData);
-
-      onCreateOasis({
-        ...oasisData,
-        id: oasisId,
-        ownerId: user.uid,
-        memberCount: 1
-      });
       
+      onCreateOasis(oasisData);
       onClose();
 
       toast({
@@ -319,20 +404,14 @@ const OasisCreationModal: React.FC<OasisCreationModalProps> = ({
             <h3 className="text-xl font-bold mt-4">Select Your Oasis Type</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {oasisTypes.map((type) => (
-                <div
+                <button
                   key={type}
-                  className={`flex items-center space-x-2 p-3 rounded-md cursor-pointer transition-colors ${
-                    selectedOasisType === type
-                      ? ''
-                      : 'bg-white/30 hover:bg-white/40'
-                  }`}
                   onClick={() => handleOasisTypeSelect(type)}
-                  style={selectedOasisType === type ? shinyBlackButtonStyle : {}}
+                  style={selectedOasisType === type ? selectedButtonStyle : shinyBlackButtonStyle}
+                  className="w-full text-left"
                 >
-                  <label className="text-sm font-medium leading-none cursor-pointer flex-grow">
-                    {type}
-                  </label>
-                </div>
+                  {type}
+                </button>
               ))}
             </div>
           </div>
@@ -344,11 +423,8 @@ const OasisCreationModal: React.FC<OasisCreationModalProps> = ({
             <h2 className="text-2xl font-bold">Choose Your Features</h2>
             <Button
               onClick={handleSelectAllFeatures}
-              style={{
-                ...shinyBlackButtonStyle,
-                width: 'auto',
-                marginBottom: '1rem'
-              }}
+              style={shinyBlackButtonStyle}
+              className="mb-4"
             >
               {selectedFeatures.length ===
               features[selectedOasisType as keyof typeof features].length
@@ -358,20 +434,14 @@ const OasisCreationModal: React.FC<OasisCreationModalProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {features[selectedOasisType as keyof typeof features].map(
                 (feature) => (
-                  <div
+                  <button
                     key={feature}
-                    className={`flex items-center space-x-2 p-3 rounded-md cursor-pointer transition-colors ${
-                      selectedFeatures.includes(feature)
-                        ? ''
-                        : 'bg-white/30 hover:bg-white/40'
-                    }`}
                     onClick={() => handleFeatureToggle(feature)}
-                    style={selectedFeatures.includes(feature) ? shinyBlackButtonStyle : {}}
+                    style={selectedFeatures.includes(feature) ? selectedButtonStyle : shinyBlackButtonStyle}
+                    className="w-full text-left"
                   >
-                    <label className="text-sm font-medium leading-none cursor-pointer flex-grow">
-                      {feature}
-                    </label>
-                  </div>
+                    {feature}
+                  </button>
                 )
               )}
             </div>
@@ -384,15 +454,11 @@ const OasisCreationModal: React.FC<OasisCreationModalProps> = ({
             <h2 className="text-2xl font-bold">Choose Your Server Tier</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {serverTiers.map((tier) => (
-                <div
+                <button
                   key={tier.name}
-                  className={`flex items-center space-x-2 p-3 rounded-md cursor-pointer transition-colors ${
-                    selectedTier === tier.name
-                      ? ''
-                      : 'bg-white/30 hover:bg-white/40'
-                  }`}
                   onClick={() => handleTierSelect(tier.name)}
-                  style={selectedTier === tier.name ? shinyBlackButtonStyle : {}}
+                  style={selectedTier === tier.name ? selectedButtonStyle : shinyBlackButtonStyle}
+                  className="w-full text-left"
                 >
                   <div className="flex-grow">
                     <h3 className="text-lg font-semibold flex items-center">
@@ -406,7 +472,7 @@ const OasisCreationModal: React.FC<OasisCreationModalProps> = ({
                       )}
                     </ul>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
 
@@ -458,58 +524,138 @@ const OasisCreationModal: React.FC<OasisCreationModalProps> = ({
       case 4:
         return selectedTier === 'Premium' ? (
           <div className="space-y-4">
-            <h2 className="text-2xl font-bold">Choose Your Oasis Theme</h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {Object.entries(themes).map(([themeName, themeColors]) => (
-                <Button
-                  key={themeName}
-                  onClick={() => setSelectedTheme(themeName)}
-                  className="h-24 text-center p-2 rounded-lg shadow-md transition-all duration-300 hover:shadow-lg transform hover:scale-105"
-                  style={{
-                    background: `linear-gradient(to bottom right, ${themeColors.primary}, ${themeColors.secondary})`,
-                    color: 'white',
-                    textShadow: '0px 3px 4px rgba(0, 0, 0, 0.8)',
-                  }}
-                >
-                  {themeName}
-                </Button>
-              ))}
+            <h2 className="text-2xl font-bold">Customize Oasis Theme</h2>
+            <div className="bg-gray-900 text-white rounded-lg p-4 border border-gray-700">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {Object.entries(themes).map(([themeName, themeColors]) => (
+                  <div key={themeName} className="space-y-2">
+                    <Button
+                      onClick={() => setSelectedTheme(themeName)}
+                      className={`h-24 w-full text-center p-2 rounded-lg shadow-md transition-all duration-300 hover:shadow-lg transform hover:scale-105 ${
+                        selectedTheme === themeName ? 'ring-2 ring-blue-500' : ''
+                      }`}
+                      style={{
+                        background: selectedThemeMode === 'gradient'
+                          ? `linear-gradient(to bottom right, ${themeColors.primary}, ${themeColors.secondary})`
+                          : selectedThemeMode === 'primary'
+                            ? themeColors.primary
+                            : themeColors.secondary,
+                        color: 'white',
+                        textShadow: '0px 3px 4px rgba(0, 0, 0, 0.8)',
+                      }}
+                    >
+                      {themeName}
+                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={() => setSelectedThemeMode('gradient')}
+                        className={`flex-1 h-6 ${selectedThemeMode === 'gradient' ? 'ring-2 ring-blue-500' : ''}`}
+                        style={{
+                          background: `linear-gradient(to right, ${themeColors.primary}, ${themeColors.secondary})`,
+                        }}
+                      />
+                      <Button
+                        onClick={() => setSelectedThemeMode('primary')}
+                        className={`flex-1 h-6 ${selectedThemeMode === 'primary' ? 'ring-2 ring-blue-500' : ''}`}
+                        style={{ background: themeColors.primary }}
+                      />
+                      <Button
+                        onClick={() => setSelectedThemeMode('secondary')}
+                        className={`flex-1 h-6 ${selectedThemeMode === 'secondary' ? 'ring-2 ring-blue-500' : ''}`}
+                        style={{ background: themeColors.secondary }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         ) : null;
 
       case 5:
         return (
-          <div className="space-y-4">
-            <h2 className="text-2xl font-bold">
-              Upload Oasis Image (Optional)
-            </h2>
-            <div className="flex flex-col items-center">
-              {imagePreview ? (
-                <img
-                  src={imagePreview}
-                  alt="Oasis preview"
-                  className="w-32 h-32 object-cover rounded-lg mb-4"
-                />
-              ) : (
-                <div className="w-32 h-32 bg-white/30 rounded-lg mb-4 flex items-center justify-center">
-                  <Upload size={32} className="text-blue-600" />
+          <div className="space-y-6">
+            <div className="text-center">
+              <h2 className="text-2xl font-bold mb-2">
+                Upload Oasis Image
+              </h2>
+              <p className="text-blue-900/80">Add a unique avatar for your oasis community</p>
+            </div>
+            
+            <div className="bg-gradient-to-br from-white/20 to-white/5 backdrop-blur-sm rounded-xl p-6 shadow-xl border border-white/10">
+              <div className="flex items-start gap-6">
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                    <Upload size={20} className="text-blue-600" />
+                    Upload Requirements
+                  </h3>
+                  <ul className="space-y-2 text-sm">
+                    <li className="flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-blue-600" />
+                      Maximum file size: 5MB
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-blue-600" />
+                      Accepted formats: PNG, JPG, JPEG, GIF
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-blue-600" />
+                      Recommended dimensions: 512x512 pixels
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-blue-600" />
+                      Will be displayed as your oasis avatar
+                    </li>
+                  </ul>
                 </div>
-              )}
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageUpload}
-                className="hidden"
-                ref={fileInputRef}
-              />
-              <Button
-                onClick={triggerFileInput}
-                variant="outline"
-                className="bg-transparent border-blue-600 text-blue-700 hover:bg-blue-600 hover:text-white"
-              >
-                {imagePreview ? 'Change Image' : 'Upload Image'}
-              </Button>
+                
+                <div className="flex flex-col items-center gap-4">
+                  {imagePreview ? (
+                    <div className="relative group">
+                      <img
+                        src={imagePreview}
+                        alt="Oasis preview"
+                        className="w-40 h-40 object-cover rounded-xl shadow-lg ring-2 ring-white/20 group-hover:ring-blue-500 transition-all duration-300"
+                      />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl flex items-center justify-center">
+                        <p className="text-white text-sm">Click to change</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div 
+                      className="w-40 h-40 bg-gradient-to-br from-white/10 to-white/5 rounded-xl flex flex-col items-center justify-center gap-3 border-2 border-dashed border-blue-500/30 hover:border-blue-500 transition-colors duration-300 cursor-pointer"
+                      onClick={triggerFileInput}
+                    >
+                      <Upload size={32} className="text-blue-500" />
+                      <p className="text-sm text-blue-900 font-medium">Click to upload</p>
+                    </div>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    className="hidden"
+                    ref={fileInputRef}
+                  />
+                  <Button
+                    onClick={triggerFileInput}
+                    style={shinyBlackButtonStyle}
+                    disabled={isUploading}
+                    className="w-full max-w-[160px]"
+                  >
+                    {isUploading ? (
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Uploading...
+                      </div>
+                    ) : imagePreview ? (
+                      'Change Image'
+                    ) : (
+                      'Upload Image'
+                    )}
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
         );
@@ -525,8 +671,8 @@ const OasisCreationModal: React.FC<OasisCreationModalProps> = ({
         <CardHeader className="relative">
           <Button
             onClick={onClose}
-            variant="ghost"
-            className="absolute right-2 top-2 text-blue-700 hover:text-blue-900"
+            style={shinyBlackButtonStyle}
+            className="absolute right-2 top-2"
             aria-label="Close"
           >
             <X className="h-4 w-4" />
@@ -550,20 +696,21 @@ const OasisCreationModal: React.FC<OasisCreationModalProps> = ({
           <Button
             onClick={handleBack}
             disabled={step === 1}
-            style={shinyBlackButtonStyle}
+            style={step > 1 ? navigationButtonActiveStyle : navigationButtonStyle}
+            className="w-24 hover:scale-105 transition-transform"
           >
-            <ChevronLeft className="mr-2 h-4 w-4" /> Back
+            Back
           </Button>
           <Button
             onClick={step === 5 ? handleCreateOasis : handleNext}
-            style={shinyBlackButtonStyle}
+            style={step === 5 ? navigationButtonActiveStyle : navigationButtonStyle}
+            disabled={isUploading}
+            className="w-24 hover:scale-105 transition-transform"
           >
             {step === 5 ? (
-              'Create Oasis'
+              isUploading ? 'Creating...' : 'Create'
             ) : (
-              <>
-                Next <ChevronRight className="ml-2 h-4 w-4" />
-              </>
+              'Next'
             )}
           </Button>
         </CardFooter>

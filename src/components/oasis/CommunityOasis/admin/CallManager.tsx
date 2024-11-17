@@ -16,6 +16,7 @@ import {
   addDoc,
   serverTimestamp,
   Timestamp,
+  getDocs,
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useToast } from '@/components/ui/use-toast';
@@ -108,116 +109,115 @@ const CallManager: React.FC<CallManagerProps> = ({
   }, [oasisId]);
 
   const handleRecordingEnd = async () => {
-  if (!activeCallId) {
-    console.log('No active call ID found');
-    return;
-  }
-
-  const user = auth.currentUser;
-  if (!user) {
-    console.log('No authenticated user found');
-    return;
-  }
-
-  try {
-    console.log('Starting recording end process', {
-      oasisId,
-      activeCallId,
-      userId: user.uid,
-    });
-
-    let recordingBlob = null;
-    if (isRecording && callService.current) {
-      try {
-        console.log('Attempting to stop recording');
-        recordingBlob = await callService.current.recording.stopRecording();
-        console.log('Recording stopped successfully, blob size:', recordingBlob?.size);
-        setIsRecording(false);
-      } catch (error) {
-        console.error('Error stopping recording:', error);
-      }
+    if (!activeCallId) {
+      console.log('No active call ID found');
+      return;
     }
 
-    const callRef = doc(db, 'oasis', oasisId, 'adminCalls', activeCallId);
-    const callDoc = await getDoc(callRef);
-    
-    if (!callDoc.exists()) {
-      console.error('Call document not found:', activeCallId);
-      throw new Error('Call document not found');
+    const user = auth.currentUser;
+    if (!user) {
+      console.log('No authenticated user found');
+      return;
     }
-
-    if (recordingBlob) {
-      const timestamp = Date.now();
-      // Update path to match storage rules
-      const recordingPath = `oasis/${oasisId}/calls/${activeCallId}/recording-${timestamp}.webm`;
-      console.log('Preparing to upload recording to path:', recordingPath);
-
-      const storageRef = ref(storage, recordingPath);
-
-      const metadata = {
-        contentType: 'audio/webm;codecs=opus',
-        customMetadata: {
-          oasisId,
-          callId: activeCallId,
-          uploaderId: user.uid,
-          timestamp: timestamp.toString(),
-        }
-      };
-
-      console.log('Starting blob upload with metadata:', metadata);
-      const uploadResult = await uploadBytes(storageRef, recordingBlob, metadata);
-      console.log('Upload completed:', uploadResult);
-
-      const downloadURL = await getDownloadURL(uploadResult.ref);
-      console.log('Download URL obtained:', downloadURL);
-
-      await updateDoc(callRef, {
-        status: 'completed',
-        endedAt: serverTimestamp(),
-        recordingUrl: downloadURL,
-      });
-
-      toast({
-        title: 'Success',
-        description: 'Call ended and recording saved successfully',
-      });
-    } else {
-      await updateDoc(callRef, {
-        status: 'completed',
-        endedAt: serverTimestamp(),
-      });
-
-      toast({
-        title: 'Info',
-        description: 'Call ended without recording',
-      });
-    }
-  } catch (error: any) {
-    console.error('Error handling recording end:', {
-      error,
-      errorMessage: error instanceof Error ? error.message : 'Unknown error',
-      errorStack: error instanceof Error ? error.stack : undefined,
-      errorCode: (error as any)?.code,
-      errorDetails: (error as any)?.details,
-    });
-
-    toast({
-      title: 'Error',
-      description: 'Failed to save recording. Please try again.',
-      variant: 'destructive',
-    });
 
     try {
-      const callRef = doc(db, 'oasis', oasisId, 'adminCalls', activeCallId);
-      await updateDoc(callRef, {
-        status: 'completed',
-        endedAt: serverTimestamp(),
+      console.log('Starting recording end process', {
+        oasisId,
+        activeCallId,
+        userId: user.uid,
       });
-    } catch (endError) {
-      console.error('Error ending call:', endError);
+
+      let recordingBlob = null;
+      if (isRecording && callService.current) {
+        try {
+          console.log('Attempting to stop recording');
+          recordingBlob = await callService.current.recording.stopRecording();
+          console.log('Recording stopped successfully, blob size:', recordingBlob?.size);
+          setIsRecording(false);
+        } catch (error) {
+          console.error('Error stopping recording:', error);
+        }
+      }
+
+      const callRef = doc(db, 'oasis', oasisId, 'adminCalls', activeCallId);
+      const callDoc = await getDoc(callRef);
+      
+      if (!callDoc.exists()) {
+        console.error('Call document not found:', activeCallId);
+        throw new Error('Call document not found');
+      }
+
+      if (recordingBlob) {
+        const timestamp = Date.now();
+        const recordingPath = `oasis/${oasisId}/calls/${activeCallId}/recording-${timestamp}.webm`;
+        console.log('Preparing to upload recording to path:', recordingPath);
+
+        const storageRef = ref(storage, recordingPath);
+
+        const metadata = {
+          contentType: 'audio/webm;codecs=opus',
+          customMetadata: {
+            oasisId,
+            callId: activeCallId,
+            uploaderId: user.uid,
+            timestamp: timestamp.toString(),
+          }
+        };
+
+        console.log('Starting blob upload with metadata:', metadata);
+        const uploadResult = await uploadBytes(storageRef, recordingBlob, metadata);
+        console.log('Upload completed:', uploadResult);
+
+        const downloadURL = await getDownloadURL(uploadResult.ref);
+        console.log('Download URL obtained:', downloadURL);
+
+        await updateDoc(callRef, {
+          status: 'completed',
+          endedAt: serverTimestamp(),
+          recordingUrl: downloadURL,
+        });
+
+        toast({
+          title: 'Success',
+          description: 'Call ended and recording saved successfully',
+        });
+      } else {
+        await updateDoc(callRef, {
+          status: 'completed',
+          endedAt: serverTimestamp(),
+        });
+
+        toast({
+          title: 'Info',
+          description: 'Call ended without recording',
+        });
+      }
+    } catch (error: any) {
+      console.error('Error handling recording end:', {
+        error,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        errorStack: error instanceof Error ? error.stack : undefined,
+        errorCode: (error as any)?.code,
+        errorDetails: (error as any)?.details,
+      });
+
+      toast({
+        title: 'Error',
+        description: 'Failed to save recording. Please try again.',
+        variant: 'destructive',
+      });
+
+      try {
+        const callRef = doc(db, 'oasis', oasisId, 'adminCalls', activeCallId);
+        await updateDoc(callRef, {
+          status: 'completed',
+          endedAt: serverTimestamp(),
+        });
+      } catch (endError) {
+        console.error('Error ending call:', endError);
+      }
     }
-  }
-};
+  };
 
   const startCall = async () => {
     const user = auth.currentUser;
@@ -231,7 +231,45 @@ const CallManager: React.FC<CallManagerProps> = ({
     }
 
     try {
+      // Check for any existing active calls first
       const callsRef = collection(db, 'oasis', oasisId, 'adminCalls');
+      const activeCallsQuery = query(callsRef, where('status', '==', 'active'));
+      const activeCallsSnapshot = await getDocs(activeCallsQuery);
+
+      if (!activeCallsSnapshot.empty) {
+        // Join existing call instead of creating a new one
+        const existingCall = activeCallsSnapshot.docs[0];
+        const callData = existingCall.data();
+
+        // Check if user is already in the call
+        if (callData.participants.some((p: any) => p.userId === user.uid)) {
+          toast({
+            title: 'Info',
+            description: 'You are already in this call',
+          });
+          return;
+        }
+
+        // Add user to existing call's participants
+        const updatedParticipants = [
+          ...callData.participants,
+          {
+            userId: user.uid,
+            userName: user.displayName || 'Anonymous',
+            role: 'participant',
+            joinedAt: Timestamp.now(),
+          },
+        ];
+
+        await updateDoc(existingCall.ref, {
+          participants: updatedParticipants,
+        });
+
+        toast({ title: 'Success', description: 'Joined call successfully' });
+        return;
+      }
+
+      // If no active call exists, create a new one
       const newCall = {
         startedAt: serverTimestamp(),
         status: 'active',
@@ -256,10 +294,10 @@ const CallManager: React.FC<CallManagerProps> = ({
         setIsRecording(true);
       }
     } catch (error) {
-      console.error('Error starting call:', error);
+      console.error('Error starting/joining call:', error);
       toast({
         title: 'Error',
-        description: 'Failed to start call',
+        description: 'Failed to start/join call',
         variant: 'destructive',
       });
     }
@@ -332,13 +370,6 @@ const CallManager: React.FC<CallManagerProps> = ({
               >
                 Leave Call
               </Button>
-            ) : activeCallId ? (
-              <Button
-                onClick={startCall}
-                className="w-full bg-blue-600 hover:bg-blue-700"
-              >
-                Join Active Call
-              </Button>
             ) : (
               <Button
                 onClick={startCall}
@@ -358,7 +389,7 @@ const CallManager: React.FC<CallManagerProps> = ({
                   fontWeight: '500',
                 }}
               >
-                Start New Call
+                {activeCallId ? 'Join Active Call' : 'Start New Call'}
               </Button>
             )}
 

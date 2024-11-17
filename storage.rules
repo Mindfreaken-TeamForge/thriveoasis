@@ -1,0 +1,53 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isMember(oasisId) {
+      return isSignedIn() && 
+        exists(path('/databases/(default)/documents/oasis/' + oasisId + '/members/' + request.auth.uid));
+    }
+    
+    function hasPermission(oasisId, permission) {
+      let memberDoc = get(path('/databases/(default)/documents/oasis/' + oasisId + '/members/' + request.auth.uid));
+      return isSignedIn() && 
+        (memberDoc.data.permissions.hasAny([permission, 'administrator']) || 
+         memberDoc.data.role == 'owner');
+    }
+    
+    // User uploads
+    match /users/{userId}/{allPaths=**} {
+      allow read: if request.auth.uid == userId;
+      allow write: if request.auth.uid == userId && 
+        request.resource.size < 10 * 1024 * 1024 && // 10MB max
+        request.resource.contentType.matches('image/.*|application/pdf');
+    }
+    
+    // Oasis images upload path
+    match /oasis-images/{imageId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null 
+        && request.resource.size < 5 * 1024 * 1024  // 5MB max
+        && request.resource.contentType.matches('image/.*');
+    }
+    
+    // Oasis files
+    match /oasis/{oasisId}/{allPaths=**} {
+      allow read: if isMember(oasisId);
+      allow write: if isMember(oasisId) && 
+        hasPermission(oasisId, 'upload_files') &&
+        request.resource.size < 250 * 1024 * 1024 && // 250MB max
+        request.resource.contentType.matches('image/.*|video/.*|audio/.*|application/pdf');
+    }
+    
+    // Admin call recordings
+    match /oasis/{oasisId}/adminCalls/{callId}/{allPaths=**} {
+      allow read: if hasPermission(oasisId, 'administrator');
+      allow write: if hasPermission(oasisId, 'administrator') &&
+        request.resource.size < 500 * 1024 * 1024 && // 500MB max
+        request.resource.contentType.matches('audio/.*|video/.*');
+    }
+  }
+} 

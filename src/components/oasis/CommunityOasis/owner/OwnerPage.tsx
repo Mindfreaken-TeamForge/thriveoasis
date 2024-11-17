@@ -4,19 +4,27 @@ import OasisStatistics from '@/components/OwnerOasis/OasisStatistics';
 import QuickActions from '@/components/OwnerOasis/QuickActions';
 import UnbanRequests from '@/components/OwnerOasis/UnbanRequests';
 import RoleManagement from '@/components/OwnerOasis/RoleManagement';
+import type { ThemeMode } from '@/components/ThemeSelector/ThemeMode';
 
 interface OwnerPageProps {
   oasis: {
     id: string;
     name: string;
     theme: string;
+    themeMode?: ThemeMode;
     tier?: string;
   };
   themeColors: ThemeColors;
-  onThemeChange: (theme: string) => void;
+  onThemeChange: (theme: string, mode: ThemeMode) => void;
+  currentMode: ThemeMode;
 }
 
-const OwnerPage: React.FC<OwnerPageProps> = ({ oasis, themeColors, onThemeChange }) => {
+const OwnerPage: React.FC<OwnerPageProps> = ({ 
+  oasis, 
+  themeColors, 
+  onThemeChange,
+  currentMode
+}) => {
   const [isRoleManagementOpen, setIsRoleManagementOpen] = useState(false);
 
   const cardStyle = {
@@ -50,6 +58,7 @@ const OwnerPage: React.FC<OwnerPageProps> = ({ oasis, themeColors, onThemeChange
         setIsRoleManagementOpen={setIsRoleManagementOpen}
         cardStyle={cardStyle}
         oasisData={oasis}
+        currentMode={currentMode}
       />
       <UnbanRequests
         themeColors={themeColors}

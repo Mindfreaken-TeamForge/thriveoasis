@@ -95,7 +95,7 @@ const OasisStatistics: React.FC<OasisStatisticsProps> = ({
               <div className="p-1 bg-green-500/20 rounded-lg">
                 <MessageSquare className="h-3 w-3 text-green-400" />
               </div>
-              <span className="text-gray-300">Messages Today</span>
+              <span className="text-gray-300">Joined Today</span>
             </div>
             <span className="text-1xl font-bold text-white">
               {dailyMessages}

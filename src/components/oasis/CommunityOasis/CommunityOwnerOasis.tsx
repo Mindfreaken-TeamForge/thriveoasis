@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ThemeColors, themes } from '@/themes';
-import { doc, updateDoc, collection } from 'firebase/firestore';
+import { doc, updateDoc, collection, onSnapshot } from 'firebase/firestore';
 import { db, auth } from '@/firebase';
 import { useToast } from '@/components/ui/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -10,12 +10,14 @@ import ModerationPage from './moderation/ModerationPage';
 import OwnerPage from './owner/OwnerPage';
 import TokenManager from '@/components/TokenManagement/TokenManager';
 import MemberManagementSidebar from './MemberManagementSidebar';
+import type { ThemeMode } from '@/components/ThemeSelector/ThemeMode';
 
 interface Oasis {
   id: string;
   name: string;
   ownerId: string;
   theme: string;
+  themeMode?: ThemeMode;
   type: string;
   tier?: string;
   features?: string[];
@@ -36,13 +38,41 @@ const CommunityOwnerOasis: React.FC<CommunityOwnerOasisProps> = ({
   const [currentTheme, setCurrentTheme] = useState(
     oasis.theme || 'Thrive Oasis(Default)'
   );
+  const [themeMode, setThemeMode] = useState<ThemeMode>(
+    oasis.themeMode || 'gradient'
+  );
   const [themeColors, setThemeColors] = useState<ThemeColors>(
     themes[currentTheme as keyof typeof themes]
   );
   const [activeTab, setActiveTab] = useState('owner');
   const { toast } = useToast();
 
-  const handleThemeChange = async (theme: string) => {
+  // Listen for theme changes in Firestore
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user || !oasis.id) return;
+
+    // Listen to the main oasis document
+    const oasisRef = doc(db, 'oasis', oasis.id);
+    const unsubscribe = onSnapshot(oasisRef, (docSnapshot) => {
+      if (docSnapshot.exists()) {
+        const data = docSnapshot.data();
+        if (data.theme !== currentTheme) {
+          setCurrentTheme(data.theme);
+          setThemeColors(themes[data.theme as keyof typeof themes]);
+        }
+        if (data.themeMode !== themeMode) {
+          setThemeMode(data.themeMode || 'gradient');
+        }
+      }
+    }, (error) => {
+      console.error('Error listening to theme changes:', error);
+    });
+
+    return () => unsubscribe();
+  }, [oasis.id, currentTheme, themeMode]);
+
+  const handleThemeChange = async (theme: string, mode: ThemeMode) => {
     const user = auth.currentUser;
     if (!user) {
       toast({
@@ -56,16 +86,18 @@ const CommunityOwnerOasis: React.FC<CommunityOwnerOasisProps> = ({
     try {
       // Update in main oasis collection
       const oasisRef = doc(db, 'oasis', oasis.id);
-      await updateDoc(oasisRef, { theme });
+      await updateDoc(oasisRef, { 
+        theme,
+        themeMode: mode 
+      });
 
       // Update in user's created oasis collection
       const userOasisRef = doc(collection(db, 'users', user.uid, 'createdOasis'), oasis.id);
-      await updateDoc(userOasisRef, { theme });
+      await updateDoc(userOasisRef, { 
+        theme,
+        themeMode: mode 
+      });
 
-      // Update local state
-      setCurrentTheme(theme);
-      setThemeColors(themes[theme as keyof typeof themes]);
-      
       // Update parent state
       onThemeChange(oasis.id, theme);
 
@@ -83,12 +115,25 @@ const CommunityOwnerOasis: React.FC<CommunityOwnerOasisProps> = ({
     }
   };
 
+  const getThemeBackground = () => {
+    switch (themeMode) {
+      case 'gradient':
+        return `linear-gradient(145deg, ${themeColors.primary}, ${themeColors.secondary})`;
+      case 'primary':
+        return themeColors.primary;
+      case 'secondary':
+        return themeColors.secondary;
+      default:
+        return themeColors.background;
+    }
+  };
+
   return (
     <div 
       className="flex h-screen overflow-hidden"
       style={{
         color: themeColors.text,
-        background: themeColors.background,
+        background: getThemeBackground(),
       }}
     >
       {/* Main Content Area */}
@@ -101,7 +146,7 @@ const CommunityOwnerOasis: React.FC<CommunityOwnerOasisProps> = ({
             backdropFilter: 'blur(8px)',
           }}
         >
-          <h1 className="text-2xl font-bold" style={{ color: themeColors.text }}>
+          <h1 className="text-2xl font-bold" style={{ color: 'white' }}>
             {oasis.name} - Community Oasis
           </h1>
           
@@ -128,9 +173,13 @@ const CommunityOwnerOasis: React.FC<CommunityOwnerOasisProps> = ({
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 overflow-hidden">
           <TabsContent value="owner" className="h-full overflow-auto p-6">
             <OwnerPage 
-              oasis={oasis} 
-              themeColors={themeColors} 
+              oasis={{
+                ...oasis,
+                themeMode,
+              }}
+              themeColors={themeColors}
               onThemeChange={handleThemeChange}
+              currentMode={themeMode}
             />
           </TabsContent>
 
@@ -153,6 +202,7 @@ const CommunityOwnerOasis: React.FC<CommunityOwnerOasisProps> = ({
               oasisId={oasis.id}
               oasisName={oasis.name}
               themeColors={themeColors}
+              themeMode={themeMode}
               showInput={true}
             />
           </TabsContent>

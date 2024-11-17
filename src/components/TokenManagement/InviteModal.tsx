@@ -88,8 +88,8 @@ const InviteModal: React.FC<InviteModalProps> = ({
 
   return (
     <div className="fixed inset-0 flex items-center justify-center z-[9999]">
-      <div 
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm" 
+      <div
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
         onClick={handleClose}
       />
       <motion.div
@@ -99,7 +99,7 @@ const InviteModal: React.FC<InviteModalProps> = ({
         className="relative bg-gray-900 rounded-lg p-6 w-full max-w-md m-4"
         style={{
           maxHeight: 'calc(100vh - 12rem)',
-          overflowY: 'auto'
+          overflowY: 'auto',
         }}
       >
         <div className="flex justify-between items-center mb-6">

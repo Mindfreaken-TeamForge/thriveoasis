@@ -8,14 +8,16 @@ import {
   CardDescription,
 } from '@/components/ui/card';
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
-import { Command, CommandGroup, CommandItem } from '@/components/ui/command';
-import { Bell, Palette, Megaphone, Crown, UserCog } from 'lucide-react';
-import { ThemeColors } from '../../themes';
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Settings, Users, Shield, Bell, MessageSquare } from 'lucide-react';
+import { ThemeColors } from '@/themes';
+import ThemeSelector from '../ThemeSelector/ThemeSelector';
 import { motion } from 'framer-motion';
+import type { ThemeMode } from '../ThemeSelector/ThemeMode';
 
 interface OasisData {
   id?: string;
@@ -24,16 +26,18 @@ interface OasisData {
   extraEmotes?: number;
   extraStickers?: number;
   monthlyPrice?: number;
+  themeMode?: ThemeMode;
 }
 
 interface QuickActionsProps {
   themeColors: ThemeColors;
   currentTheme: string;
   themes: Record<string, ThemeColors>;
-  handleThemeChange: (theme: string) => void;
+  handleThemeChange: (theme: string, mode: ThemeMode) => void;
   setIsRoleManagementOpen: (isOpen: boolean) => void;
   cardStyle: React.CSSProperties;
   oasisData?: OasisData;
+  currentMode: ThemeMode;
 }
 
 const QuickActions: React.FC<QuickActionsProps> = ({
@@ -44,9 +48,10 @@ const QuickActions: React.FC<QuickActionsProps> = ({
   setIsRoleManagementOpen,
   cardStyle,
   oasisData = { tier: 'Free' },
+  currentMode,
 }) => {
-  const [isThemePopoverOpen, setIsThemePopoverOpen] = useState(false);
-  const [isPremiumPopoverOpen, setIsPremiumPopoverOpen] = useState(false);
+  const [isThemeDialogOpen, setIsThemeDialogOpen] = useState(false);
+  const [isPremiumDialogOpen, setIsPremiumDialogOpen] = useState(false);
   const [loadingStates, setLoadingStates] = useState({
     announcement: false,
     roles: false,
@@ -72,36 +77,30 @@ const QuickActions: React.FC<QuickActionsProps> = ({
   };
 
   const handleButtonClick = async (action: keyof typeof loadingStates) => {
-    // Set loading state
     setLoadingStates(prev => ({ ...prev, [action]: true }));
 
     try {
-      // Handle specific actions
       switch (action) {
         case 'roles':
           setIsRoleManagementOpen(true);
-          // Keep loading state for a moment to show feedback
           await new Promise(resolve => setTimeout(resolve, 500));
           break;
         case 'theme':
           if (isPremium) {
-            setIsThemePopoverOpen(true);
+            setIsThemeDialogOpen(true);
           } else {
-            setIsPremiumPopoverOpen(true);
+            setIsPremiumDialogOpen(true);
           }
           await new Promise(resolve => setTimeout(resolve, 500));
           break;
         case 'announcement':
-          // Simulate announcement action
           await new Promise(resolve => setTimeout(resolve, 500));
           break;
         case 'notifications':
-          // Simulate notifications action
           await new Promise(resolve => setTimeout(resolve, 500));
           break;
       }
     } finally {
-      // Reset loading state after action completes
       setLoadingStates(prev => ({ ...prev, [action]: false }));
     }
   };
@@ -166,119 +165,43 @@ const QuickActions: React.FC<QuickActionsProps> = ({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2.5 pt-0">
-        {renderButton('announcement', <Megaphone className="mr-2 h-4 w-4" />, 'Send Announcement')}
-        {renderButton('roles', <UserCog className="mr-2 h-4 w-4" />, 'Manage Roles')}
+        {renderButton('announcement', <MessageSquare className="mr-2 h-4 w-4" />, 'Send Announcement')}
+        {renderButton('roles', <Shield className="mr-2 h-4 w-4" />, 'Manage Roles')}
         {renderButton('notifications', <Bell className="mr-2 h-4 w-4" />, 'Notifications')}
-
-        {isPremium ? (
-          <Popover
-            open={isThemePopoverOpen}
-            onOpenChange={setIsThemePopoverOpen}
-          >
-            <PopoverTrigger asChild>
-              {renderButton('theme', <Palette className="mr-2 h-4 w-4" />, 'Change Oasis Theme')}
-            </PopoverTrigger>
-            <PopoverContent
-              className="w-[300px] p-4 bg-gray-800 border-gray-700"
-              align="end"
-            >
-              <Command className="rounded-lg bg-transparent">
-                <CommandGroup className="max-h-[300px] overflow-auto">
-                  {Object.keys(themes).map((theme) => (
-                    <CommandItem
-                      key={theme}
-                      onSelect={() => {
-                        handleThemeChange(theme);
-                        setIsThemePopoverOpen(false);
-                      }}
-                      className="flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-white/10 rounded-md transition-colors"
-                      style={{
-                        backgroundColor:
-                          currentTheme === theme
-                            ? 'rgba(255, 255, 255, 0.1)'
-                            : 'transparent',
-                        color: '#fff',
-                        textShadow: '0 0 5px rgba(255,255,255,0.3)',
-                      }}
-                    >
-                      <div className="flex items-center space-x-2">
-                        <div
-                          className="w-4 h-4 rounded-full"
-                          style={{
-                            background:
-                              themes[theme as keyof typeof themes].primary,
-                            border: '1px solid rgba(255, 255, 255, 0.2)',
-                            boxShadow: `0 0 4px ${
-                              themes[theme as keyof typeof themes].primary
-                            }`,
-                          }}
-                        />
-                        <span className="text-white text-sm font-medium">
-                          {theme}
-                        </span>
-                      </div>
-                      {currentTheme === theme && (
-                        <span className="text-xs bg-blue-500 text-white rounded px-2 py-0.5">
-                          Active
-                        </span>
-                      )}
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              </Command>
-            </PopoverContent>
-          </Popover>
-        ) : (
-          <Popover
-            open={isPremiumPopoverOpen}
-            onOpenChange={setIsPremiumPopoverOpen}
-          >
-            <PopoverTrigger asChild>
-              {renderButton(
-                'theme',
-                <>
-                  <Palette className="mr-2 h-4 w-4" />
-                  <Crown className="ml-2 h-4 w-4 text-yellow-400" />
-                </>,
-                'Change Oasis Theme'
-              )}
-            </PopoverTrigger>
-            <PopoverContent
-              className="w-[300px] p-4 bg-gray-800 border-gray-700"
-              align="end"
-            >
-              <div className="space-y-4">
-                <div className="flex items-center">
-                  <Crown className="h-6 w-6 text-yellow-400 mr-2" />
-                  <h3 className="text-lg font-bold text-white">
-                    Premium Feature
-                  </h3>
-                </div>
-                <p className="text-sm text-white/90">
-                  Theme customization is available exclusively for Premium Oasis
-                  members. Upgrade now to unlock:
-                </p>
-                <ul className="space-y-2">
-                  <li className="flex items-center text-white text-sm">
-                    <Palette className="h-4 w-4 text-blue-400 mr-2" />
-                    Custom theme selection
-                  </li>
-                  <li className="flex items-center text-white text-sm">
-                    <Crown className="h-4 w-4 text-yellow-400 mr-2" />
-                    Premium oasis themes
-                  </li>
-                </ul>
-                <Button
-                  className="w-full bg-gradient-to-r from-yellow-400 to-yellow-600 hover:from-yellow-500 hover:to-yellow-700 text-black font-semibold"
-                  onClick={() => setIsPremiumPopoverOpen(false)}
-                >
-                  Upgrade to Premium Oasis
-                </Button>
-              </div>
-            </PopoverContent>
-          </Popover>
-        )}
+        {renderButton('theme', <Settings className="mr-2 h-4 w-4" />, 'Change Theme')}
       </CardContent>
+
+      {/* Theme Selection Dialog */}
+      <Dialog open={isThemeDialogOpen} onOpenChange={setIsThemeDialogOpen}>
+        <DialogContent className="bg-gray-900 text-white border-gray-700 max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Customize Oasis Theme</DialogTitle>
+          </DialogHeader>
+          <ThemeSelector
+            currentTheme={currentTheme}
+            currentMode={currentMode}
+            onThemeChange={handleThemeChange}
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* Premium Feature Dialog */}
+      <Dialog open={isPremiumDialogOpen} onOpenChange={setIsPremiumDialogOpen}>
+        <DialogContent className="bg-gray-900 text-white border-gray-700">
+          <DialogHeader>
+            <DialogTitle>Premium Feature</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <p>Theme customization is available exclusively for Premium Oasis members.</p>
+            <Button
+              className="w-full bg-gradient-to-r from-yellow-400 to-yellow-600 hover:from-yellow-500 hover:to-yellow-700 text-black font-semibold"
+              onClick={() => setIsPremiumDialogOpen(false)}
+            >
+              Upgrade to Premium
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 };

@@ -1,50 +1,53 @@
-"use client"
+'use client';
 
-import React from 'react'
-import { Search, MoreVertical } from 'lucide-react'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
+import React from 'react';
+import { Search, MoreVertical } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+} from '@/components/ui/dropdown-menu';
 
 interface ThemeColors {
-  primary: string
-  secondary: string
-  accent: string
+  primary: string;
+  secondary: string;
+  accent: string;
 }
 
 interface Member {
-  id: string
-  name: string
-  role: "owner" | "admin" | "member"
-  joinedAt: Date
-  avatarInitials: string
-  avatarColor: string
+  id: string;
+  name: string;
+  role: 'owner' | 'admin' | 'member';
+  joinedAt: Date;
+  avatarInitials: string;
+  avatarColor: string;
 }
 
 interface MemberManagementSidebarProps {
-  oasisId: string
-  themeColors: ThemeColors
+  oasisId: string;
+  themeColors: ThemeColors;
 }
 
-const MemberList: React.FC<{ oasisId: string; themeColors: ThemeColors }> = ({ oasisId, themeColors }) => {
+const MemberList: React.FC<{ oasisId: string; themeColors: ThemeColors }> = ({
+  oasisId,
+  themeColors,
+}) => {
   const members: Member[] = [
-    { 
-      id: '1', 
-      name: 'Mindfreaken', 
-      role: 'owner', 
+    {
+      id: '1',
+      name: 'Mindfreaken',
+      role: 'owner',
       joinedAt: new Date('2024-11-12'),
       avatarInitials: 'MI',
-      avatarColor: '#ff4d4d'
-    }
-  ]
+      avatarColor: '#ff4d4d',
+    },
+  ];
 
   return (
     <div className="space-y-1">
@@ -56,7 +59,7 @@ const MemberList: React.FC<{ oasisId: string; themeColors: ThemeColors }> = ({ o
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <Avatar className="h-8 w-8 rounded">
-                <AvatarFallback 
+                <AvatarFallback
                   style={{ backgroundColor: member.avatarColor }}
                   className="text-white text-sm font-medium"
                 >
@@ -105,35 +108,32 @@ const MemberList: React.FC<{ oasisId: string; themeColors: ThemeColors }> = ({ o
         </div>
       ))}
     </div>
-  )
-}
+  );
+};
 
-const BannedList: React.FC<{ oasisId: string; themeColors: ThemeColors }> = ({ oasisId, themeColors }) => {
-  return (
-    <div className="p-4 text-sm text-gray-400">
-      No banned members
-    </div>
-  )
-}
+const BannedList: React.FC<{ oasisId: string; themeColors: ThemeColors }> = ({
+  oasisId,
+  themeColors,
+}) => {
+  return <div className="p-4 text-sm text-gray-400">No banned members</div>;
+};
 
 const MemberManagementSidebar: React.FC<MemberManagementSidebarProps> = ({
   oasisId,
   themeColors,
 }) => {
   return (
-    <div 
-      className="w-60 border-l border-gray-800 flex flex-col bg-gray-900"
-    >
+    <div className="w-60 border-l border-gray-800 flex flex-col bg-gray-900">
       <Tabs defaultValue="members" className="flex-1">
         <TabsList className="w-full bg-gray-800 rounded-none p-1 space-x-1">
-          <TabsTrigger 
-            value="members" 
+          <TabsTrigger
+            value="members"
             className="flex-1 rounded-md data-[state=active]:bg-gray-700 data-[state=active]:text-white text-gray-300 hover:text-white transition-colors"
           >
             Members
           </TabsTrigger>
-          <TabsTrigger 
-            value="banned" 
+          <TabsTrigger
+            value="banned"
             className="flex-1 rounded-md data-[state=active]:bg-gray-700 data-[state=active]:text-white text-gray-300 hover:text-white transition-colors"
           >
             Banned
@@ -141,35 +141,29 @@ const MemberManagementSidebar: React.FC<MemberManagementSidebarProps> = ({
         </TabsList>
 
         <div className="p-2 border-b border-gray-800">
-  <div className="relative">
-    <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
-    <Input
-      placeholder="Search members..."
-      className="w-full bg-gray-800 border-gray-700 pl-8 py-2 text-sm text-gray-100 placeholder:text-gray-500 focus-visible:ring-1 focus-visible:ring-gray-600 focus-visible:ring-offset-0"
-    />
-  </div>
-</div>
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
+            <Input
+              placeholder="Search members..."
+              className="w-full bg-gray-800 border-gray-700 pl-8 py-2 text-sm text-gray-100 placeholder:text-gray-500 focus-visible:ring-1 focus-visible:ring-gray-600 focus-visible:ring-offset-0"
+            />
+          </div>
+        </div>
 
         <TabsContent value="members" className="flex-1 mt-0">
           <ScrollArea className="h-[calc(100vh-140px)]">
-            <MemberList 
-              oasisId={oasisId}
-              themeColors={themeColors}
-            />
+            <MemberList oasisId={oasisId} themeColors={themeColors} />
           </ScrollArea>
         </TabsContent>
 
         <TabsContent value="banned" className="flex-1 mt-0">
           <ScrollArea className="h-[calc(100vh-140px)]">
-            <BannedList 
-              oasisId={oasisId}
-              themeColors={themeColors}
-            />
+            <BannedList oasisId={oasisId} themeColors={themeColors} />
           </ScrollArea>
         </TabsContent>
       </Tabs>
     </div>
-  )
-}
+  );
+};
 
-export default MemberManagementSidebar
+export default MemberManagementSidebar;

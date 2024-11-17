@@ -80,9 +80,16 @@ const AdminChat: React.FC<AdminChatProps> = ({ themeColors, oasisId }) => {
     
     // Initialize system message if needed
     const initializeSystemMessage = async () => {
-      const querySnapshot = await getDocs(messagesRef);
+      // Check if system message already exists
+      const systemMessageQuery = query(
+        messagesRef, 
+        where('authorId', '==', 'system'),
+        where('authorRole', '==', 'System')
+      );
       
-      if (querySnapshot.empty) {
+      const systemMessageSnapshot = await getDocs(systemMessageQuery);
+      
+      if (systemMessageSnapshot.empty) {
         const systemMessage = {
           author: 'System',
           authorId: 'system',
@@ -122,7 +129,7 @@ const AdminChat: React.FC<AdminChatProps> = ({ themeColors, oasisId }) => {
         if (message.isPinned) {
           pinnedList.push(message);
         }
-        messagesList.push(message); // Add all messages to the main list
+        messagesList.push(message);
       });
       
       setMessages(messagesList);
@@ -254,11 +261,6 @@ const AdminChat: React.FC<AdminChatProps> = ({ themeColors, oasisId }) => {
     }
   };
 
-  const filteredMessages = messages.filter(message => 
-    message.content.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    message.author.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
   const renderMessage = (message: Message, isPinnedSection: boolean = false) => (
     <div
       key={message.id}
@@ -311,6 +313,11 @@ const AdminChat: React.FC<AdminChatProps> = ({ themeColors, oasisId }) => {
         </div>
       </div>
     </div>
+  );
+
+  const filteredMessages = messages.filter(message => 
+    message.content.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    message.author.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   if (isLoading) {

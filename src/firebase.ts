@@ -18,17 +18,25 @@ import { getStorage } from 'firebase/storage';
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyBRvo1QG1Zq3iFO75cyJLBA2bMvw3tXFKg",
-  authDomain: "forge-sync.firebaseapp.com",
-  projectId: "forge-sync",
-  storageBucket: "forge-sync.appspot.com",
-  messagingSenderId: "202823382709",
-  appId: "1:202823382709:web:d0b08a2a6d71c0553230fc",
-  databaseURL: "https://forge-sync-default-rtdb.firebaseio.com"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyBRvo1QG1Zq3iFO75cyJLBA2bMvw3tXFKg",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "forge-sync.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "forge-sync",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "forge-sync.appspot.com",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "202823382709",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:202823382709:web:d0b08a2a6d71c0553230fc",
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL || "https://forge-sync-default-rtdb.firebaseio.com"
 };
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
+let app;
+try {
+  app = initializeApp(firebaseConfig);
+} catch (error: any) {
+  if (!/already exists/.test(error.message)) {
+    console.error('Firebase initialization error:', error);
+  }
+}
+
 export const auth = getAuth(app);
 
 // Initialize Firestore with enhanced configuration
@@ -45,13 +53,14 @@ export const storage = getStorage(app);
 const initializeFirestorePersistence = async () => {
   try {
     await enableIndexedDbPersistence(db);
+    console.log('Firestore persistence enabled');
   } catch (err: any) {
     if (err.code === 'failed-precondition') {
-      // Multiple tabs open, persistence can only be enabled in one tab at a time
       console.warn('Persistence disabled: multiple tabs open');
     } else if (err.code === 'unimplemented') {
-      // The current browser doesn't support persistence
       console.warn('Persistence not supported by browser');
+    } else {
+      console.error('Persistence initialization error:', err);
     }
   }
 };
@@ -61,8 +70,10 @@ export const handleNetworkState = async (online: boolean) => {
   try {
     if (online) {
       await enableNetwork(db);
+      console.log('Network connection enabled');
     } else {
       await disableNetwork(db);
+      console.log('Network connection disabled');
     }
   } catch (error) {
     console.error('Error managing network state:', error);
@@ -83,6 +94,7 @@ export const initializeUserData = async (userId: string, userData: any) => {
         role: 'member',
         isActive: true
       }, { merge: true });
+      console.log('User data initialized successfully');
     }
   } catch (error) {
     console.error('Error initializing user data:', error);
@@ -111,7 +123,7 @@ export const getUserData = async (userId: string) => {
 };
 
 // Initialize persistence
-initializeFirestorePersistence();
+initializeFirestorePersistence().catch(console.error);
 
 // Listen for online/offline events
 if (typeof window !== 'undefined') {

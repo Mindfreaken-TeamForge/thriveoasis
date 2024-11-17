@@ -31,17 +31,6 @@ export const themes: Record<string, ThemeColors> = {
     buttonText: '#191970', // Dark text on buttons for contrast
   },
 
-  // A futuristic theme inspired by dawn with neon green and coral accents
-  'Digital Dawn': {
-    primary: '#39FF14', // Neon green for high-tech look
-    secondary: '#1E1E78', // Deep indigo for a modern touch
-    accent: '#FF7F50', // Coral accent to add warmth
-    background: 'linear-gradient(135deg, #39FF14 0%, #1E1E78 100%)', // Neon green to indigo gradient
-    text: '#1E1E78', // Indigo text for visual harmony
-    buttonGradient: 'linear-gradient(to right, #39FF14, #FF7F50)', // Green to coral gradient for buttons
-    buttonText: '#1E1E78', // Indigo text for readability
-  },
-
   // Cosmic-themed palette with purple, black, and golden accents
   'Cosmic Unity': {
     primary: '#6A5ACD', // Purple for a cosmic effect

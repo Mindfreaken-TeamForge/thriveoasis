@@ -15,10 +15,10 @@ const FireSlider = React.forwardRef<
     )}
     {...props}
   >
-    <SliderPrimitive.Track className="relative h-2 w-full grow overflow-hidden rounded-full bg-gradient-to-r from-[#05668D] via-[#02C39A] to-[#00A896]">
-      <SliderPrimitive.Range className="absolute h-full bg-gradient-to-r from-[#00A896] via-[#02C39A] to-[#0004ff]" />
+    <SliderPrimitive.Track className="relative h-2 w-full grow overflow-hidden rounded-full bg-gradient-to-r from-[#38bdf8] to-[#0284c7]">
+      <SliderPrimitive.Range className="absolute h-full bg-gradient-to-r from-[#2c3e50] to-[#1a2533]" />
     </SliderPrimitive.Track>
-    <SliderPrimitive.Thumb className="block h-5 w-5 rounded-full border-2 border-[#00A896] bg-gradient-to-br from-[#02C39A] via-[#00A896] to-[#05668D] ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50" />
+    <SliderPrimitive.Thumb className="block h-5 w-5 rounded-full border-2 border-[#38bdf8] bg-gradient-to-br from-[#38bdf8] via-[#0284c7] to-[#0284c7] ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50" />
   </SliderPrimitive.Root>
 ))
 FireSlider.displayName = SliderPrimitive.Root.displayName

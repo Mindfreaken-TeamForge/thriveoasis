@@ -11,6 +11,7 @@ import {
   Users,
   Clock,
   X,
+  AlertTriangle,
 } from 'lucide-react';
 import { ThemeColors } from '@/themes';
 import { auth, db } from '@/firebase';
@@ -27,6 +28,12 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 import { useToast } from '@/components/ui/use-toast';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface Vote {
   userId: string;
@@ -61,6 +68,11 @@ const PollManager: React.FC<PollManagerProps> = ({ themeColors, oasisId }) => {
   const [showVoters, setShowVoters] = useState<Record<string, boolean>>({});
   const [duration, setDuration] = useState<'24' | '72'>('24');
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [confirmVoteDialog, setConfirmVoteDialog] = useState<{
+    isOpen: boolean;
+    pollId: string;
+    optionIndex: number;
+  }>({ isOpen: false, pollId: '', optionIndex: -1 });
   const { toast } = useToast();
 
   const buttonStyle = {
@@ -93,34 +105,44 @@ const PollManager: React.FC<PollManagerProps> = ({ themeColors, oasisId }) => {
     const pollsRef = collection(db, 'users', user.uid, 'oasis', oasisId, 'polls');
     const q = query(pollsRef, orderBy('createdAt', 'desc'));
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const pollsData: Poll[] = [];
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        const createdAt = data.createdAt as Timestamp;
-        const endAt = data.endAt as Timestamp;
-        const endedAt = data.endedAt as Timestamp | undefined;
+    const unsubscribe = onSnapshot(q, 
+      (snapshot) => {
+        const pollsData: Poll[] = [];
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          const createdAt = data.createdAt as Timestamp;
+          const endAt = data.endAt as Timestamp;
+          const endedAt = data.endedAt as Timestamp | undefined;
 
-        if (createdAt) {
-          pollsData.push({
-            id: doc.id,
-            question: data.question,
-            options: data.options.map((opt: any) => ({
-              ...opt,
-              votes: opt.votes.map((vote: any) => ({
-                ...vote,
-                timestamp: vote.timestamp?.toDate() || new Date(),
+          if (createdAt) {
+            pollsData.push({
+              id: doc.id,
+              question: data.question,
+              options: data.options.map((opt: any) => ({
+                ...opt,
+                votes: opt.votes.map((vote: any) => ({
+                  ...vote,
+                  timestamp: vote.timestamp?.toDate() || new Date(),
+                })),
               })),
-            })),
-            isActive: data.isActive,
-            createdAt: createdAt.toDate(),
-            endAt: endAt.toDate(),
-            endedAt: endedAt?.toDate(),
-          });
-        }
-      });
-      setPolls(pollsData);
-    });
+              isActive: data.isActive,
+              createdAt: createdAt.toDate(),
+              endAt: endAt.toDate(),
+              endedAt: endedAt?.toDate(),
+            });
+          }
+        });
+        setPolls(pollsData);
+      },
+      (error) => {
+        console.error('Error fetching polls:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to fetch polls. Please check your permissions.',
+          variant: 'destructive',
+        });
+      }
+    );
 
     return () => unsubscribe();
   }, [oasisId, toast]);
@@ -169,6 +191,15 @@ const PollManager: React.FC<PollManagerProps> = ({ themeColors, oasisId }) => {
       return;
     }
 
+    if (newPollOptions.length > 10) {
+      toast({
+        title: 'Error',
+        description: 'Maximum 10 options allowed per poll',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     try {
       const endAt = new Date();
       endAt.setHours(endAt.getHours() + parseInt(duration));
@@ -204,6 +235,14 @@ const PollManager: React.FC<PollManagerProps> = ({ themeColors, oasisId }) => {
   };
 
   const handleAddOption = () => {
+    if (newPollOptions.length >= 10) {
+      toast({
+        title: 'Error',
+        description: 'Maximum 10 options allowed per poll',
+        variant: 'destructive',
+      });
+      return;
+    }
     setNewPollOptions([...newPollOptions, '']);
   };
 
@@ -219,18 +258,20 @@ const PollManager: React.FC<PollManagerProps> = ({ themeColors, oasisId }) => {
     setNewPollOptions(newPollOptions.filter((_, index) => index !== indexToRemove));
   };
 
-  const handleVote = async (pollId: string, optionIndex: number) => {
-    const user = auth.currentUser;
-    if (!user) {
-      toast({
-        title: 'Error',
-        description: 'You must be logged in to vote',
-        variant: 'destructive',
-      });
-      return;
-    }
-
+  const handleVoteConfirm = async () => {
+    const { pollId, optionIndex } = confirmVoteDialog;
+    
     try {
+      const user = auth.currentUser;
+      if (!user) {
+        toast({
+          title: 'Error',
+          description: 'You must be logged in to vote',
+          variant: 'destructive',
+        });
+        return;
+      }
+
       const pollRef = doc(db, 'users', user.uid, 'oasis', oasisId, 'polls', pollId);
       const poll = polls.find((p) => p.id === pollId);
 
@@ -260,6 +301,8 @@ const PollManager: React.FC<PollManagerProps> = ({ themeColors, oasisId }) => {
         description: 'Failed to record vote',
         variant: 'destructive',
       });
+    } finally {
+      setConfirmVoteDialog({ isOpen: false, pollId: '', optionIndex: -1 });
     }
   };
 
@@ -348,7 +391,7 @@ const PollManager: React.FC<PollManagerProps> = ({ themeColors, oasisId }) => {
                 style={{
                   ...buttonStyle,
                   background: duration === '24'
-                    ? 'linear-gradient(145deg, #38bdf8, #0284c7)'
+                    ? 'linear-gradient(145deg, #38bdf8, #0284c7)' 
                     : buttonStyle.background,
                 }}
               >
@@ -372,9 +415,10 @@ const PollManager: React.FC<PollManagerProps> = ({ themeColors, oasisId }) => {
               <Button
                 onClick={handleAddOption}
                 style={buttonStyle}
+                disabled={newPollOptions.length >= 10}
               >
                 <Plus className="w-4 h-4 mr-2" />
-                Add Option
+                Add Option {newPollOptions.length}/10
               </Button>
               <Button
                 onClick={handleCreatePoll}
@@ -474,14 +518,25 @@ const PollManager: React.FC<PollManagerProps> = ({ themeColors, oasisId }) => {
                             </div>
                             <div className="relative flex items-center">
                               <Button
-                                onClick={() => handleVote(poll.id, optionIndex)}
+                                onClick={() => {
+                                  if (poll.isActive && !hasVoted) {
+                                    setConfirmVoteDialog({
+                                      isOpen: true,
+                                      pollId: poll.id,
+                                      optionIndex,
+                                    });
+                                  }
+                                }}
                                 disabled={!poll.isActive || hasVoted}
-                                className={`w-24 h-8 flex items-center justify-between px-3 
-                                  ${
-                                    hasUserVoted
-                                      ? 'bg-gradient-to-r from-[#38bdf8] to-[#0284c7] text-white'
-                                      : 'bg-gray-700 hover:bg-gray-600 text-white'
-                                  }`}
+                                style={hasUserVoted ? buttonStyle : {
+                                  background: 'linear-gradient(145deg, #0ea5e9, #0284c7)',
+                                  color: '#fff',
+                                  textShadow: '0 0 5px rgba(255,255,255,0.5)',
+                                  boxShadow: '0 0 10px rgba(0,0,0,0.5)',
+                                  border: 'none',
+                                  transition: 'all 0.1s ease',
+                                }}
+                                className="w-24 h-8 flex items-center justify-between px-3"
                               >
                                 <span>Vote</span>
                                 {hasUserVoted && (
@@ -537,6 +592,43 @@ const PollManager: React.FC<PollManagerProps> = ({ themeColors, oasisId }) => {
           </ScrollArea>
         </CardContent>
       </Card>
+
+      {/* Vote Confirmation Dialog */}
+      <Dialog
+        open={confirmVoteDialog.isOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setConfirmVoteDialog({ isOpen: false, pollId: '', optionIndex: -1 });
+          }
+        }}
+      >
+        <DialogContent className="bg-gray-900 text-white border-gray-700">
+          <DialogHeader>
+            <DialogTitle className="flex items-center">
+              <AlertTriangle className="w-5 h-5 text-yellow-500 mr-2" />
+              Confirm Vote
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <p>Are you sure you want to cast your vote? This action cannot be undone.</p>
+            <div className="flex justify-end space-x-2">
+              <Button
+                onClick={() => setConfirmVoteDialog({ isOpen: false, pollId: '', optionIndex: -1 })}
+                variant="outline"
+                className="bg-gray-800 hover:bg-gray-700 text-white border-gray-700"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleVoteConfirm}
+                style={buttonStyle}
+              >
+                Confirm Vote
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

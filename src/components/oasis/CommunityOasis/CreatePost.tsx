@@ -7,20 +7,40 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useToast } from '@/components/ui/use-toast';
 import { ThemeColors } from '@/themes';
 import { motion } from 'framer-motion';
+import type { ThemeMode } from '@/components/ThemeSelector/ThemeMode';
 
 interface CreatePostProps {
   oasisId: string;
   themeColors: ThemeColors;
+  themeMode?: ThemeMode;
   onPostCreated?: () => void;
 }
 
-const CreatePost: React.FC<CreatePostProps> = ({ oasisId, themeColors, onPostCreated }) => {
+const CreatePost: React.FC<CreatePostProps> = ({ 
+  oasisId, 
+  themeColors,
+  themeMode = 'gradient',
+  onPostCreated 
+}) => {
   const [newPost, setNewPost] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [attachment, setAttachment] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
+
+  const getBackground = () => {
+    switch (themeMode) {
+      case 'gradient':
+        return `linear-gradient(145deg, ${themeColors.primary}20, ${themeColors.secondary}20)`;
+      case 'primary':
+        return `${themeColors.primary}20`;
+      case 'secondary':
+        return `${themeColors.secondary}20`;
+      default:
+        return 'rgba(17, 24, 39, 0.3)';
+    }
+  };
 
   const handleAttachmentClick = () => {
     fileInputRef.current?.click();
@@ -88,28 +108,30 @@ const CreatePost: React.FC<CreatePostProps> = ({ oasisId, themeColors, onPostCre
     setIsLoading(true);
 
     try {
-      let attachmentUrl = '';
       let attachmentData = null;
 
       if (attachment) {
+        // Upload attachment first
         const storageRef = ref(storage, `oasis/${oasisId}/attachments/${Date.now()}_${attachment.name}`);
-        await uploadBytes(storageRef, attachment);
-        attachmentUrl = await getDownloadURL(storageRef);
+        const uploadResult = await uploadBytes(storageRef, attachment);
+        const downloadURL = await getDownloadURL(uploadResult.ref);
+        
         attachmentData = {
-          url: attachmentUrl,
+          url: downloadURL,
           name: attachment.name,
           type: attachment.type,
           size: attachment.size
         };
       }
 
+      // Create post with attachment data if present
       await addDoc(collection(db, 'oasis', oasisId, 'posts'), {
         author: user.displayName || 'Anonymous',
         authorId: user.uid,
-        content: newPost,
-        likes: [],
+        content: newPost.trim(),
         attachment: attachmentData,
         timestamp: serverTimestamp(),
+        likes: []
       });
 
       setNewPost('');
@@ -169,10 +191,11 @@ const CreatePost: React.FC<CreatePostProps> = ({ oasisId, themeColors, onPostCre
             adjustTextareaHeight();
           }}
           onKeyDown={handleKeyPress}
-          className="flex-grow bg-gray-800/50 border-gray-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 min-h-[40px] max-h-[150px] resize-none"
+          className="flex-grow rounded-lg px-4 py-2 focus:outline-none focus:ring-2 min-h-[40px] max-h-[150px] resize-none"
           style={{
             borderColor: `${themeColors.accent}40`,
-            backgroundColor: 'rgba(17, 24, 39, 0.3)',
+            background: getBackground(),
+            color: themeColors.text,
           }}
         />
         
@@ -199,7 +222,11 @@ const CreatePost: React.FC<CreatePostProps> = ({ oasisId, themeColors, onPostCre
             type="submit"
             disabled={isLoading}
             style={{
-              background: themeColors.buttonGradient,
+              background: themeMode === 'gradient'
+                ? themeColors.buttonGradient
+                : themeMode === 'primary'
+                ? themeColors.primary
+                : themeColors.secondary,
               color: themeColors.buttonText,
             }}
             className="transition-transform hover:scale-105"
