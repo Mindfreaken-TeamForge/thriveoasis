@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Hash } from 'lucide-react';
-import { db } from '@/firebase';
+import { db } from '../../../firebase';
 import { collection, query, orderBy, onSnapshot, limit, startAfter, getDocs, Timestamp, serverTimestamp } from 'firebase/firestore';
-import Post from './Post';
-import NotificationBell from '@/components/NotificationBell';
-import { ThemeColors } from '@/themes';
+import PostComponent from './Post';
+import NotificationBell from '../../NotificationBell';
+import { ThemeColors } from '../../../themes';
 import CreatePost from './CreatePost';
-import type { ThemeMode } from '@/components/ThemeSelector/ThemeMode';
+import type { ThemeMode } from '../../ThemeSelector/ThemeMode';
 
 interface Post {
   id: string;
@@ -228,13 +228,13 @@ const Community: React.FC<CommunityProps> = ({
         )}
 
         {posts.map((post, index) => {
-          const prevPost = index > 0 ? posts[index - 1] : null;
+          const prevPost = index > 0 ? posts[index - 1] : undefined;
           const isFirstInGroup = !prevPost || 
             prevPost.authorId !== post.authorId || 
             post.timestamp.getTime() - prevPost.timestamp.getTime() > 300000;
 
           return (
-            <Post 
+            <PostComponent 
               key={post.id} 
               post={post}
               oasisId={oasisId}
