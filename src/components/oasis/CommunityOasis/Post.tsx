@@ -7,11 +7,11 @@ import { auth, db } from '@/firebase';
 import { useToast } from '@/components/ui/use-toast';
 import { ThemeColors } from '@/themes';
 import ReportDialog from './ReportDialog';
-import ReactionPicker from './ReactionPicker';
-import Reactions from './Reactions';
+import { ReactionPicker } from './ReactionPicker';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { doc, updateDoc, arrayUnion, arrayRemove, deleteDoc, Timestamp } from 'firebase/firestore';
+import { doc, updateDoc, arrayUnion, arrayRemove, deleteDoc, Timestamp, increment, deleteField } from 'firebase/firestore';
 import type { ThemeMode } from '@/components/ThemeSelector/ThemeMode';
+import type { Emote } from '@/types/upload';
 
 interface EditHistory {
   content: string;
@@ -31,20 +31,36 @@ interface Post {
   author: string;
   authorId: string;
   content: string;
-  reactions?: Record<string, { count: number; users: string[] }>;
   timestamp: Date;
   editHistory?: EditHistory[];
   attachment?: Attachment;
+  reactions?: {
+    [key: string]: {
+      count: number;
+      users: string[];
+    };
+  };
+  customEmotes?: {
+    [key: string]: {
+      count: number;
+      users: string[];
+    };
+  };
+  userReactions?: {
+    [userId: string]: string[];
+  };
 }
 
 interface PostProps {
   post: Post;
   oasisId: string;
   themeColors: ThemeColors;
-  themeMode?: ThemeMode;
+  themeMode: ThemeMode;
   isFirstInGroup: boolean;
   previousPost?: Post;
   onAttachmentLoad?: () => void;
+  customEmotes: Emote[];
+  oasisName: string;
 }
 
 const Post: React.FC<PostProps> = ({ 
@@ -54,7 +70,9 @@ const Post: React.FC<PostProps> = ({
   themeMode = 'gradient',
   isFirstInGroup, 
   previousPost,
-  onAttachmentLoad
+  onAttachmentLoad,
+  customEmotes,
+  oasisName,
 }) => {
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
   const [isReactionPickerOpen, setIsReactionPickerOpen] = useState(false);
@@ -89,41 +107,51 @@ const Post: React.FC<PostProps> = ({
     setIsReactionPickerOpen(true);
   };
 
-  const handleAddReaction = async (emoji: string) => {
-    if (!currentUser) {
-      toast({
-        title: 'Error',
-        description: 'You must be logged in to react to posts',
-        variant: 'destructive',
-      });
-      return;
-    }
+  const handleReaction = async (emoteId: string, isCustomEmote: boolean = false) => {
+    if (!auth.currentUser) return;
 
     try {
-      const postRef = doc(db, 'oasis', oasisId, 'posts', post.id);
-      const currentReactions = post.reactions || {};
-      const currentReaction = currentReactions[emoji] || { count: 0, users: [] };
-      const hasReacted = currentReaction.users?.includes(currentUser.uid);
+      const postRef = doc(db, 'users', auth.currentUser.uid, 'oasis', oasisId, 'posts', post.id);
+      const reactionKey = isCustomEmote ? `customEmotes.${emoteId}` : `reactions.${emoteId}`;
+      const userReactions = post.userReactions?.[auth.currentUser.uid] || [];
+      const hasReacted = userReactions.includes(emoteId);
 
       if (hasReacted) {
         // Remove reaction
-        await updateDoc(postRef, {
-          [`reactions.${emoji}.count`]: Math.max(0, (currentReaction.count || 1) - 1),
-          [`reactions.${emoji}.users`]: arrayRemove(currentUser.uid)
-        });
+        const currentCount = isCustomEmote 
+          ? post.customEmotes?.[emoteId]?.count || 0
+          : post.reactions?.[emoteId]?.count || 0;
+
+        if (currentCount <= 1) {
+          // If this is the last reaction, remove the entire reaction entry
+          await updateDoc(postRef, {
+            [`${reactionKey}`]: deleteField(),
+            [`userReactions.${auth.currentUser.uid}`]: arrayRemove(emoteId)
+          });
+        } else {
+          // Otherwise just decrement the count
+          await updateDoc(postRef, {
+            [`${reactionKey}.count`]: increment(-1),
+            [`${reactionKey}.users`]: arrayRemove(auth.currentUser.uid),
+            [`userReactions.${auth.currentUser.uid}`]: arrayRemove(emoteId)
+          });
+        }
       } else {
         // Add reaction
         await updateDoc(postRef, {
-          [`reactions.${emoji}.count`]: (currentReaction.count || 0) + 1,
-          [`reactions.${emoji}.users`]: arrayUnion(currentUser.uid)
+          [`${reactionKey}`]: {
+            count: increment(1),
+            users: arrayUnion(auth.currentUser.uid)
+          },
+          [`userReactions.${auth.currentUser.uid}`]: arrayUnion(emoteId)
         });
       }
     } catch (error) {
       console.error('Error updating reaction:', error);
       toast({
-        title: 'Error',
-        description: 'Failed to update reaction',
-        variant: 'destructive',
+        title: "Error",
+        description: "Failed to update reaction",
+        variant: "destructive"
       });
     }
   };
@@ -390,23 +418,59 @@ const Post: React.FC<PostProps> = ({
           )}
 
           <div className="ml-10">
-            <Reactions
-              reactions={reactionsList}
-              onToggleReaction={handleAddReaction}
-              currentUserId={auth.currentUser?.uid}
-            />
+            <div className="flex flex-wrap gap-2 mt-2">
+              {/* Default Reactions */}
+              {Object.entries(post.reactions || {}).map(([emoji, data]) => (
+                <button
+                  key={emoji}
+                  onClick={() => handleReaction(emoji)}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${
+                    data.users?.includes(auth.currentUser?.uid || '') 
+                      ? 'bg-primary/20'
+                      : 'bg-gray-800/50 hover:bg-gray-800'
+                  }`}
+                >
+                  <span className="text-lg">{emoji}</span>
+                  <span className="text-xs font-medium">{data.count}</span>
+                </button>
+              ))}
+
+              {/* Custom Emote Reactions */}
+              {Object.entries(post.customEmotes || {}).map(([emoteId, data]) => {
+                const emote = customEmotes.find(e => e.id === emoteId);
+                if (!emote) return null;
+
+                return (
+                  <button
+                    key={emoteId}
+                    onClick={() => handleReaction(emoteId, true)}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm ${
+                      data.users?.includes(auth.currentUser?.uid || '')
+                        ? 'bg-primary/20'
+                        : 'bg-gray-800/50 hover:bg-gray-800'
+                    }`}
+                  >
+                    <img 
+                      src={emote.url} 
+                      alt={emote.name}
+                      className="w-5 h-5 object-contain"
+                    />
+                    <span className="text-xs font-medium">{data.count}</span>
+                  </button>
+                );
+              })}
+
+              {/* Reaction Picker */}
+              <ReactionPicker
+                onSelect={(emoji, isCustom) => handleReaction(emoji, isCustom)}
+                customEmotes={customEmotes}
+                oasisName={oasisName}
+              />
+            </div>
           </div>
           
           <div className="absolute right-4 top-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
             <div className="flex justify-center items-center flex-wrap space-x-2">
-              <Button
-                size="icon"
-                onClick={handleReactionClick}
-                className="bg-transparent hover:bg-yellow-500/20 w-8 h-8 p-2"
-              >
-                <SmilePlus className="w-4 h-4 text-white" />
-              </Button>
-
               {canModifyPost && (
                 <>
                   <Button
@@ -437,16 +501,6 @@ const Post: React.FC<PostProps> = ({
           </div>
         </div>
       </motion.div>
-
-      <ReactionPicker
-        isOpen={isReactionPickerOpen}
-        onClose={() => {
-          setIsReactionPickerOpen(false);
-          setPickerAnchorEl(null);
-        }}
-        onSelectReaction={handleAddReaction}
-        anchorEl={pickerAnchorEl}
-      />
 
       <ReportDialog
         isOpen={isReportDialogOpen}

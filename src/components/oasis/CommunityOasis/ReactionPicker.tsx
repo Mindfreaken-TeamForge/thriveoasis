@@ -1,111 +1,87 @@
-import React, { useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Button } from '@/components/ui/button';
+import { useState } from 'react';
+import { Smile } from 'lucide-react';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import type { Emote } from '@/types/upload';
+import { formatEmoteDisplay } from '@/types/upload';
 
 interface ReactionPickerProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onSelectReaction: (emoji: string) => void;
-  anchorEl: HTMLButtonElement | null;
+  onSelect: (emoji: string, isCustom?: boolean) => void;
+  customEmotes?: Emote[];
+  oasisName?: string;
 }
 
-const commonEmojis = ['👍', '👎', '❤️', '😂', '😮', '😢', '😡', '🎉', '🔥', '💯'];
+const defaultEmojis = ['👍', '❤️', '😂', '😮', '😢', '😡'];
 
-const ReactionPicker: React.FC<ReactionPickerProps> = ({
-  isOpen,
-  onClose,
-  onSelectReaction,
-  anchorEl,
-}) => {
-  const pickerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
-        onClose();
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isOpen, onClose]);
-
-  if (!isOpen || !anchorEl) return null;
-
-  const anchorRect = anchorEl.getBoundingClientRect();
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  const pickerWidth = 320;
-  const pickerHeight = 48;
-  const padding = 8;
-
-  let left = anchorRect.left + (anchorRect.width / 2) - (pickerWidth / 2);
-  left = Math.max(padding, Math.min(left, viewportWidth - pickerWidth - padding));
-
-  const spaceBelow = viewportHeight - anchorRect.bottom;
-  const spaceAbove = anchorRect.top;
-  const showAbove = spaceBelow < (pickerHeight + padding) && spaceAbove > spaceBelow;
-
-  const top = showAbove 
-    ? anchorRect.top - pickerHeight - padding
-    : anchorRect.bottom + padding;
-
-  const arrowOffset = Math.max(10, Math.min(
-    anchorRect.left - left + (anchorRect.width / 2),
-    pickerWidth - 10
-  ));
+export function ReactionPicker({ onSelect, customEmotes = [], oasisName = 'Community' }: ReactionPickerProps) {
+  const [open, setOpen] = useState(false);
 
   return (
-    <AnimatePresence>
-      <motion.div
-        ref={pickerRef}
-        initial={{ opacity: 0, scale: 0.95, y: showAbove ? 10 : -10 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: showAbove ? 10 : -10 }}
-        className="fixed z-50 bg-gray-900/95 backdrop-blur-sm border border-gray-700 rounded-lg shadow-xl p-2 overflow-hidden"
-        style={{
-          left,
-          top,
-          width: pickerWidth,
-          maxHeight: '200px',
-        }}
-      >
-        <div className="grid grid-cols-10 gap-1 auto-rows-max overflow-y-auto">
-          {commonEmojis.map((emoji) => (
-            <Button
-              key={emoji}
-              variant="ghost"
-              size="sm"
-              className="h-8 w-8 p-0 hover:bg-gray-800 flex items-center justify-center"
-              onClick={() => {
-                onSelectReaction(emoji);
-                onClose();
-              }}
-            >
-              <span className="text-lg">{emoji}</span>
-            </Button>
-          ))}
-        </div>
-        <div 
-          className="absolute w-2 h-2 bg-gray-900 border-gray-700 transform rotate-45"
-          style={{
-            [showAbove ? 'bottom' : 'top']: '-5px',
-            left: `${arrowOffset}px`,
-            borderWidth: '1px',
-            borderStyle: 'solid',
-            borderColor: showAbove 
-              ? 'transparent rgb(55 65 81) rgb(55 65 81) transparent'
-              : 'rgb(55 65 81) transparent transparent rgb(55 65 81)',
-          }}
-        />
-      </motion.div>
-    </AnimatePresence>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button className="flex items-center gap-2 px-3 py-1.5 rounded-full text-sm bg-gray-800/50 hover:bg-gray-800">
+          <Smile className="w-5 h-5" />
+          <span className="text-xs">Add Reaction</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 p-0" align="start">
+        <Tabs defaultValue="default">
+          <TabsList className="w-full">
+            <TabsTrigger value="default">Default</TabsTrigger>
+            {customEmotes.length > 0 && (
+              <TabsTrigger value="custom">{oasisName} Emotes</TabsTrigger>
+            )}
+          </TabsList>
+          <div className="p-4">
+            <TabsContent value="default" className="m-0">
+              <div className="grid grid-cols-6 gap-2">
+                {defaultEmojis.map(emoji => (
+                  <button
+                    key={emoji}
+                    onClick={() => {
+                      onSelect(emoji);
+                      setOpen(false);
+                    }}
+                    className="text-2xl hover:bg-gray-100 dark:hover:bg-gray-800 p-2 rounded transition-colors"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </TabsContent>
+            {customEmotes.length > 0 && (
+              <TabsContent value="custom" className="m-0">
+                <div className="grid grid-cols-6 gap-2">
+                  {customEmotes.map(emote => (
+                    <button
+                      key={emote.id}
+                      onClick={() => {
+                        onSelect(emote.id, true);
+                        setOpen(false);
+                      }}
+                      className="hover:bg-gray-100 dark:hover:bg-gray-800 p-2 rounded transition-colors group relative"
+                      title={formatEmoteDisplay(emote)}
+                    >
+                      <img 
+                        src={emote.url} 
+                        alt={formatEmoteDisplay(emote)}
+                        className="w-8 h-8 object-contain"
+                      />
+                      <span className="absolute inset-0 flex items-center justify-center bg-black/75 opacity-0 group-hover:opacity-100 transition-opacity rounded text-xs text-white">
+                        :{emote.baseName}:
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </TabsContent>
+            )}
+          </div>
+        </Tabs>
+      </PopoverContent>
+    </Popover>
   );
-};
-
-export default ReactionPicker;
+}

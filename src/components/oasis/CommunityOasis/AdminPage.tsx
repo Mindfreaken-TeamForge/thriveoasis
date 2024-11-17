@@ -11,18 +11,38 @@ import {
   Phone,
   Upload,
   X,
+  Smile,
 } from 'lucide-react';
-import { themes } from '@/themes';
+import { themes, ThemeColors } from '@/themes';
 import AdminChat from './admin/AdminChat';
 import PollManager from './admin/PollManager';
 import CallManager from './admin/CallManager';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { db, auth, storage } from '@/lib/firebase';
-import { serverTimestamp } from 'firebase/firestore';
-import { toast } from '@/hooks/use-toast';
+import { db, auth, storage } from '@/firebase';
+import { serverTimestamp, FieldValue } from 'firebase/firestore';
+import { useToast } from '@/components/ui/use-toast';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { collection, addDoc, deleteDoc, doc, getDocs } from 'firebase/firestore';
 import type { Emote } from '@/types/upload';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import EmotesSection from './EmotesSection';
+import { generateEmoteId, formatEmoteName, createEmote } from '@/types/upload';
+import { initializeOasisEmoteId } from '@/types/upload';
 
 interface AdminPageProps {
   oasis: {
@@ -30,15 +50,49 @@ interface AdminPageProps {
     name: string;
     theme: string;
     tier?: string;
+    extraEmotes?: number;
   };
+  themeColors: ThemeColors;
 }
 
-const AdminPage: React.FC<AdminPageProps> = ({ oasis }) => {
+const AdminPage: React.FC<AdminPageProps> = ({ oasis, themeColors }) => {
   const [activeTab, setActiveTab] = useState('overview');
-  const themeColors = themes[oasis.theme as keyof typeof themes] || themes['Thrive Oasis(Default)'];
   const isPremium = oasis.tier === 'Premium';
   const [emotes, setEmotes] = useState<Emote[]>([]);
   const [isUploadingEmote, setIsUploadingEmote] = useState(false);
+  const { toast } = useToast();
+  const [selectedEmotes, setSelectedEmotes] = useState<string[]>([]);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [emoteToDelete, setEmoteToDelete] = useState<string | null>(null);
+  const [bulkDeleteMode, setBulkDeleteMode] = useState(false);
+  const [isNamingDialogOpen, setIsNamingDialogOpen] = useState(false);
+  const [pendingEmoteFile, setPendingEmoteFile] = useState<File | null>(null);
+  const [emoteName, setEmoteName] = useState('');
+  
+  // Emote slot calculations
+  const BASE_SLOTS = isPremium ? 500 : 25;
+  const MAX_EXTRA_SLOTS = 2500;
+  const SLOTS_PER_DOLLAR = 250;
+  
+  // Calculate extra slots (capped at MAX_EXTRA_SLOTS)
+  const extraSlots = Math.min(
+    (oasis.extraEmotes || 0) * SLOTS_PER_DOLLAR,
+    MAX_EXTRA_SLOTS
+  );
+  
+  // Calculate total slots (capped based on tier)
+  const totalEmoteLimit = Math.min(
+    BASE_SLOTS + extraSlots,
+    isPremium ? 3000 : 2525
+  );
+  
+  // Calculate remaining purchasable slots
+  const remainingPurchasableSlots = isPremium 
+    ? 0 // Premium tier can't purchase more slots
+    : Math.max(0, MAX_EXTRA_SLOTS - extraSlots); // For base tier
+
+  // Calculate how many dollars worth of slots can still be purchased
+  const remainingPurchasableDollars = Math.ceil(remainingPurchasableSlots / SLOTS_PER_DOLLAR);
 
   const cards = [
     {
@@ -96,54 +150,106 @@ const AdminPage: React.FC<AdminPageProps> = ({ oasis }) => {
   const handleEmoteUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return;
     
+    const file = e.target.files[0];
+    setPendingEmoteFile(file);
+    setEmoteName(file.name.split('.')[0].toLowerCase().replace(/[^a-z0-9]/g, '_'));
+    setIsNamingDialogOpen(true);
+    e.target.value = ''; // Reset input
+  };
+
+  const handleEmoteNameSubmit = async () => {
+    if (!pendingEmoteFile || !emoteName) return;
+
     setIsUploadingEmote(true);
     try {
-      const file = e.target.files[0];
-      const emoteName = file.name.split('.')[0].toLowerCase();
+      const newEmote = await createEmote(oasis.id, pendingEmoteFile, emoteName);
+      setEmotes(prev => [...prev, newEmote]);
       
-      // Upload emote image to Storage
-      const storageRef = ref(storage, `communities/${oasis.id}/emotes/${emoteName}`);
-      await uploadBytes(storageRef, file);
-      const url = await getDownloadURL(storageRef);
-      
-      // Add emote to Firestore
-      const emoteData: Omit<Emote, 'id'> = {
-        name: emoteName,
-        url,
-        createdAt: serverTimestamp(),
-        createdBy: auth.currentUser!.uid,
-      };
-      
-      await addDoc(collection(db, 'communities', oasis.id, 'emotes'), emoteData);
-      toast.success('Emote uploaded successfully!');
+      toast({
+        title: "Success",
+        description: `Emote :${emoteName}: added successfully!`
+      });
+      setIsNamingDialogOpen(false);
+      setPendingEmoteFile(null);
+      setEmoteName('');
     } catch (error) {
       console.error('Error uploading emote:', error);
-      toast.error('Failed to upload emote');
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to upload emote",
+        variant: "destructive"
+      });
     } finally {
       setIsUploadingEmote(false);
     }
   };
 
+  const handleBulkDelete = async () => {
+    try {
+      await Promise.all(
+        selectedEmotes.map(emoteId =>
+          deleteDoc(doc(db, 'oasis', oasis.id, 'emotes', emoteId))
+        )
+      );
+      setEmotes(prev => prev.filter(emote => !selectedEmotes.includes(emote.id)));
+      setSelectedEmotes([]);
+      setBulkDeleteMode(false);
+      toast({
+        title: "Success",
+        description: `${selectedEmotes.length} emotes deleted successfully!`
+      });
+    } catch (error) {
+      console.error('Error deleting emotes:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete emotes",
+        variant: "destructive"
+      });
+    }
+  };
+
   const deleteEmote = async (emoteId: string) => {
     try {
-      await deleteDoc(doc(db, 'communities', oasis.id, 'emotes', emoteId));
+      await deleteDoc(doc(db, 'oasis', oasis.id, 'emotes', emoteId));
       setEmotes(emotes.filter(emote => emote.id !== emoteId));
-      toast.success('Emote deleted successfully!');
+      toast({
+        title: "Success",
+        description: "Emote deleted successfully!"
+      });
     } catch (error) {
       console.error('Error deleting emote:', error);
-      toast.error('Failed to delete emote');
+      toast({
+        title: "Error",
+        description: "Failed to delete emote",
+        variant: "destructive"
+      });
+    } finally {
+      setEmoteToDelete(null);
+      setDeleteDialogOpen(false);
     }
   };
 
   useEffect(() => {
     const loadEmotes = async () => {
-      const emotesRef = collection(db, 'communities', oasis.id, 'emotes');
-      const emotesSnap = await getDocs(emotesRef);
-      const emotesData = emotesSnap.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Emote[];
-      setEmotes(emotesData);
+      try {
+        // First ensure oasis has an emote ID
+        await initializeOasisEmoteId(oasis.id);
+        
+        const emotesRef = collection(db, 'oasis', oasis.id, 'emotes');
+        const emotesSnap = await getDocs(emotesRef);
+        const emotesData = emotesSnap.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Emote[];
+        setEmotes(emotesData);
+      } catch (error) {
+        console.error('Error loading emotes:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load emotes",
+          variant: "destructive"
+        });
+      }
     };
 
     loadEmotes();
@@ -163,6 +269,10 @@ const AdminPage: React.FC<AdminPageProps> = ({ oasis }) => {
           <TabsTrigger value="calls" className="data-[state=active]:bg-black">
             <Phone className="w-4 h-4 mr-2" />
             Admin Calls
+          </TabsTrigger>
+          <TabsTrigger value="emotes" className="data-[state=active]:bg-black">
+            <Smile className="w-4 h-4 mr-2" />
+            Emotes
           </TabsTrigger>
         </TabsList>
 
@@ -239,46 +349,120 @@ const AdminPage: React.FC<AdminPageProps> = ({ oasis }) => {
             isPremium={isPremium} 
           />
         </TabsContent>
-      </Tabs>
 
-      <div className="rounded-lg border p-4">
-        <h2 className="text-xl font-semibold mb-4">Community Emotes</h2>
-        
-        <div className="flex flex-col space-y-4">
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="file"
-              className="hidden"
-              accept="image/*"
-              onChange={handleEmoteUpload}
-              disabled={isUploadingEmote}
-            />
-            <div className="px-4 py-2 bg-primary text-primary-foreground rounded-md flex items-center gap-2 hover:bg-primary/90">
-              <Upload className="w-4 h-4" />
-              {isUploadingEmote ? 'Uploading...' : 'Upload Emote'}
-            </div>
-          </label>
+        <TabsContent value="emotes">
+          <EmotesSection
+            emotes={emotes}
+            totalEmoteLimit={totalEmoteLimit}
+            BASE_SLOTS={BASE_SLOTS}
+            isPremium={isPremium}
+            extraSlots={extraSlots}
+            SLOTS_PER_DOLLAR={SLOTS_PER_DOLLAR}
+            isUploadingEmote={isUploadingEmote}
+            handleEmoteUpload={handleEmoteUpload}
+            handleBulkDelete={handleBulkDelete}
+            handleSingleDelete={deleteEmote}
+            selectedEmotes={selectedEmotes}
+            setSelectedEmotes={setSelectedEmotes}
+            bulkDeleteMode={bulkDeleteMode}
+            setBulkDeleteMode={setBulkDeleteMode}
+          />
 
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {emotes.map((emote) => (
-              <div key={emote.id} className="relative group">
-                <img
-                  src={emote.url}
-                  alt={emote.name}
-                  className="w-16 h-16 object-contain"
-                />
-                <button
-                  onClick={() => deleteEmote(emote.id)}
-                  className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+          <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Confirm Deletion</DialogTitle>
+                <DialogDescription>
+                  {bulkDeleteMode 
+                    ? `Are you sure you want to delete ${selectedEmotes.length} emotes? This action cannot be undone.`
+                    : 'Are you sure you want to delete this emote? This action cannot be undone.'}
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setDeleteDialogOpen(false)}
                 >
-                  <X className="w-4 h-4" />
-                </button>
-                <p className="text-sm text-center mt-1">{emote.name}</p>
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => {
+                    if (bulkDeleteMode) {
+                      handleBulkDelete();
+                    } else if (emoteToDelete) {
+                      deleteEmote(emoteToDelete);
+                    }
+                    setDeleteDialogOpen(false);
+                  }}
+                >
+                  Delete
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={isNamingDialogOpen} onOpenChange={setIsNamingDialogOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Name Your Emote</DialogTitle>
+                <DialogDescription>
+                  Choose a name for your emote. This will be used when typing the emote in chat.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 bg-black/20 rounded-lg overflow-hidden">
+                    {pendingEmoteFile && (
+                      <img
+                        src={URL.createObjectURL(pendingEmoteFile)}
+                        alt="Preview"
+                        className="w-full h-full object-contain"
+                      />
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-sm font-medium">Emote Name</label>
+                    <input
+                      type="text"
+                      value={emoteName}
+                      onChange={(e) => setEmoteName(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '_'))}
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-md mt-1"
+                      placeholder="my_cool_emote"
+                    />
+                  </div>
+                </div>
               </div>
-            ))}
-          </div>
-        </div>
-      </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setIsNamingDialogOpen(false);
+                    setPendingEmoteFile(null);
+                    setEmoteName('');
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleEmoteNameSubmit}
+                  disabled={!emoteName || isUploadingEmote}
+                  style={{
+                    background: 'linear-gradient(145deg, #2c3e50, #1a2533)',
+                    color: '#fff',
+                    textShadow: '0 0 5px rgba(255,255,255,0.5)',
+                    boxShadow: '0 0 10px rgba(0,0,0,0.5), inset 0 0 5px rgba(255,255,255,0.2)',
+                    border: 'none',
+                    transition: 'all 0.3s ease',
+                  }}
+                >
+                  {isUploadingEmote ? 'Uploading...' : 'Upload Emote'}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };
