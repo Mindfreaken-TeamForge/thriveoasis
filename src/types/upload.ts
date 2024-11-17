@@ -1,3 +1,5 @@
+import { Timestamp } from 'firebase/firestore';
+
 export interface UploadedFile {
   id: string;
   name: string;
@@ -28,4 +30,17 @@ export interface UploadError {
   code: string;
   message: string;
   details?: any;
+}
+
+export interface Emote {
+  id: string;
+  name: string;
+  url: string;
+  createdAt: Timestamp;
+  createdBy: string;
+}
+
+export interface EmoteUpload {
+  file: File;
+  name: string;
 }
