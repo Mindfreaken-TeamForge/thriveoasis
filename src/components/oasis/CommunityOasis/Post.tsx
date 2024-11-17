@@ -317,7 +317,7 @@ const Post: React.FC<PostProps> = ({
             <div className="space-y-2">
               <Textarea
                 value={editedContent}
-                onChange={(e) => setEditedContent(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setEditedContent(e.target.value)}
                 className="w-full min-h-[100px] bg-gray-900/50 border-gray-700 text-white"
               />
               <div className="flex justify-end space-x-2">
