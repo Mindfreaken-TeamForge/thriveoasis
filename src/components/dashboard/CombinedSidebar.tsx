@@ -13,7 +13,6 @@ import {
   Users,
   UserPlus,
   Gamepad2,
-  Handshake,
 } from 'lucide-react';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -82,7 +81,7 @@ const data = {
     { title: 'Chat', icon: MessageCircle },
     {
       title: 'Free Agency',
-      icon: Handshake,
+      icon: Users,
       items: [
         { title: 'Content Creators', icon: UserPlus },
         {
