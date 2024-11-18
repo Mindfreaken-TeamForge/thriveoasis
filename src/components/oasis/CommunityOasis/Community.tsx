@@ -7,6 +7,8 @@ import NotificationBell from '../../NotificationBell';
 import { ThemeColors } from '../../../themes';
 import CreatePost from './CreatePost';
 import type { ThemeMode } from '../../ThemeSelector/ThemeMode';
+import type { Emote } from '@/types/upload';
+import { useAuth } from '../../../lib/auth';
 
 interface Post {
   id: string;
@@ -20,6 +22,21 @@ interface Post {
     name: string;
     type: string;
     size: number;
+  };
+  reactions?: {
+    [key: string]: {
+      count: number;
+      users: string[];
+    };
+  };
+  customEmotes?: {
+    [key: string]: {
+      count: number;
+      users: string[];
+    };
+  };
+  userReactions?: {
+    [userId: string]: string[];
   };
 }
 
@@ -53,6 +70,9 @@ const Community: React.FC<CommunityProps> = ({
   const initialLoadComplete = useRef(false);
   const attachmentLoadCount = useRef(0);
   const totalAttachments = useRef(0);
+  const [customEmotes, setCustomEmotes] = useState<Emote[]>([]);
+  const { user } = useAuth();
+  const [isMember, setIsMember] = useState(false);
 
   // Function to scroll to bottom with a slight delay
   const scrollToBottom = (immediate = false) => {
@@ -155,6 +175,26 @@ const Community: React.FC<CommunityProps> = ({
     });
   }, [oasisId]);
 
+  useEffect(() => {
+    if (!oasisId) return;
+
+    const loadCustomEmotes = async () => {
+      try {
+        const emotesRef = collection(db, 'oasis', oasisId, 'emotes');
+        const emotesSnap = await getDocs(emotesRef);
+        const emotesData = emotesSnap.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Emote[];
+        setCustomEmotes(emotesData);
+      } catch (error) {
+        console.error('Error loading custom emotes:', error);
+      }
+    };
+
+    loadCustomEmotes();
+  }, [oasisId]);
+
   const loadMoreMessages = async () => {
     if (!oasisId || isLoadingMore || !hasMoreMessages || !lastVisible) return;
 
@@ -223,6 +263,45 @@ const Community: React.FC<CommunityProps> = ({
     }
   };
 
+  useEffect(() => {
+    const checkMembership = async () => {
+      if (!user || !oasisId) return;
+      
+      try {
+        const memberRef = doc(db, 'oasis', oasisId, 'members', user.uid);
+        const memberDoc = await getDoc(memberRef);
+        setIsMember(memberDoc.exists());
+      } catch (error) {
+        console.error('Error checking membership:', error);
+      }
+    };
+
+    checkMembership();
+  }, [user, oasisId]);
+
+  const fetchPosts = async () => {
+    if (!user || !isMember) {
+      console.error('User must be authenticated and a community member');
+      return;
+    }
+
+    try {
+      const postsRef = collection(db, 'oasis', oasisId, 'posts');
+      const q = query(postsRef, orderBy('timestamp', 'desc'));
+      const querySnapshot = await getDocs(q);
+      const posts = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        timestamp: doc.data().timestamp?.toDate() || new Date(),
+        reactions: doc.data().reactions || {},
+        likes: doc.data().likes || [],
+      })) as Post[];
+      setPosts(posts);
+    } catch (error) {
+      console.error('Error fetching posts:', error);
+    }
+  };
+
   return (
     <div 
       className="flex flex-col h-full"
@@ -257,11 +336,13 @@ const Community: React.FC<CommunityProps> = ({
               key={post.id} 
               post={post}
               oasisId={oasisId}
+              oasisName={oasisName}
               themeColors={themeColors}
               themeMode={themeMode}
               isFirstInGroup={isFirstInGroup}
               previousPost={prevPost}
               onAttachmentLoad={handleAttachmentLoad}
+              customEmotes={customEmotes}
             />
           );
         })}

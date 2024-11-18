@@ -16,7 +16,8 @@ import {
   serverTimestamp,
   Timestamp,
   getDocs,
-  where
+  where,
+  getDoc
 } from 'firebase/firestore';
 import { useToast } from '@/components/ui/use-toast';
 import {
@@ -33,6 +34,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { useProfileContext } from '@/contexts/ProfileContext';
+import { useUserRole } from '@/hooks/useUserRole';
 
 interface Message {
   id: string;
@@ -42,11 +45,16 @@ interface Message {
   content: string;
   timestamp: Date;
   isPinned?: boolean;
+  authorPhotoURL?: string;
 }
 
 interface AdminChatProps {
   themeColors: ThemeColors;
   oasisId: string;
+}
+
+interface MessageWithRole extends Message {
+  userRole?: UserRole;
 }
 
 const AdminChat: React.FC<AdminChatProps> = ({ themeColors, oasisId }) => {
@@ -62,6 +70,10 @@ const AdminChat: React.FC<AdminChatProps> = ({ themeColors, oasisId }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const { userProfile } = useProfileContext();
+  const [userProfiles, setUserProfiles] = useState<Record<string, any>>({});
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [messagesWithRoles, setMessagesWithRoles] = useState<MessageWithRole[]>([]);
 
   const scrollToBottom = () => {
     if (scrollAreaRef.current) {
@@ -145,8 +157,164 @@ const AdminChat: React.FC<AdminChatProps> = ({ themeColors, oasisId }) => {
     };
   }, [oasisId]);
 
+  useEffect(() => {
+    if (!oasisId || !auth.currentUser) return;
+
+    const checkAdminPermission = async () => {
+      try {
+        const memberRef = doc(db, 'oasis', oasisId, 'members', auth.currentUser!.uid);
+        const unsubscribe = onSnapshot(memberRef, (doc) => {
+          if (doc.exists()) {
+            const memberData = doc.data();
+            const hasAdminPermission = 
+              memberData.permissions?.includes('administrator') || 
+              memberData.role === 'owner';
+            setIsAdmin(hasAdminPermission);
+          }
+        });
+
+        return unsubscribe;
+      } catch (error) {
+        console.error('Error checking admin permission:', error);
+        return () => {};
+      }
+    };
+
+    checkAdminPermission();
+  }, [oasisId]);
+
+  const fetchAndCacheUserProfile = async (userId: string) => {
+    if (!isAdmin) return () => {};
+
+    try {
+      const memberRef = doc(db, 'oasis', oasisId, 'members', userId);
+      return onSnapshot(memberRef, (docSnapshot) => {
+        if (docSnapshot.exists()) {
+          const userData = docSnapshot.data();
+          setUserProfiles(prev => ({
+            ...prev,
+            [userId]: {
+              displayName: userData.displayName,
+              photoURL: userData.photoURL,
+              role: userData.role
+            }
+          }));
+        }
+      });
+    } catch (error) {
+      console.error('Error setting up profile listener:', error);
+      return () => {};
+    }
+  };
+
+  useEffect(() => {
+    if (!oasisId || !isAdmin) return;
+
+    const profileListeners = new Map();
+    const messagesRef = collection(db, 'oasis', oasisId, 'adminMessages');
+    const messagesQuery = query(messagesRef, orderBy('timestamp', 'asc'));
+    
+    const unsubscribeMessages = onSnapshot(messagesQuery, async (snapshot) => {
+      const messagesList: Message[] = [];
+      const userIds = new Set<string>();
+      
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        const timestamp = data.timestamp as Timestamp;
+        const message = {
+          id: doc.id,
+          author: data.author,
+          authorId: data.authorId,
+          authorRole: data.authorRole,
+          content: data.content,
+          timestamp: timestamp?.toDate() || new Date(),
+          isPinned: data.isPinned || false,
+          authorPhotoURL: data.authorPhotoURL
+        };
+        
+        messagesList.push(message);
+        
+        if (message.authorId && message.authorId !== 'system') {
+          userIds.add(message.authorId);
+        }
+      });
+      
+      setMessages(messagesList);
+      setPinnedMessages(messagesList.filter(m => m.isPinned));
+      
+      userIds.forEach(async (userId) => {
+        if (!profileListeners.has(userId)) {
+          const unsubscribe = await fetchAndCacheUserProfile(userId);
+          profileListeners.set(userId, unsubscribe);
+        }
+      });
+    });
+
+    return () => {
+      unsubscribeMessages();
+      profileListeners.forEach(unsubscribe => unsubscribe());
+    };
+  }, [oasisId, isAdmin]);
+
+  useEffect(() => {
+    if (!oasisId) return;
+
+    const messagesRef = collection(db, 'oasis', oasisId, 'adminMessages');
+    const messagesQuery = query(messagesRef, orderBy('timestamp', 'asc'));
+    
+    const unsubscribe = onSnapshot(messagesQuery, async (snapshot) => {
+      const messagesList: MessageWithRole[] = [];
+      const pinnedList: MessageWithRole[] = [];
+      
+      for (const docSnapshot of snapshot.docs) {
+        const data = docSnapshot.data();
+        const timestamp = data.timestamp as Timestamp;
+        
+        // Fetch role for each message author
+        let userRole = null;
+        if (data.authorId && data.authorId !== 'system') {
+          const memberRef = doc(db, 'oasis', oasisId, 'members', data.authorId);
+          const memberDoc = await getDoc(memberRef);
+          
+          if (memberDoc.exists()) {
+            const memberData = memberDoc.data();
+            if (memberData.role === 'owner') {
+              userRole = 'owner';
+            } else if (memberData.permissions?.includes('administrator')) {
+              userRole = 'administrator';
+            } else if (memberData.permissions?.includes('moderate_content')) {
+              userRole = 'moderator';
+            }
+          }
+        }
+
+        const message: MessageWithRole = {
+          id: docSnapshot.id,
+          author: data.author,
+          authorId: data.authorId,
+          authorRole: data.authorRole,
+          content: data.content,
+          timestamp: timestamp?.toDate() || new Date(),
+          isPinned: data.isPinned || false,
+          authorPhotoURL: data.authorPhotoURL,
+          userRole
+        };
+        
+        if (message.isPinned) {
+          pinnedList.push(message);
+        }
+        messagesList.push(message);
+      }
+      
+      setMessages(messagesList);
+      setPinnedMessages(messagesList.filter(m => m.isPinned));
+    });
+
+    return () => unsubscribe();
+  }, [oasisId]);
+
   const handleSendMessage = async () => {
-    if (!newMessage.trim()) return;
+    if (!newMessage.trim() || !isAdmin) return;
 
     const user = auth.currentUser;
     if (!user) {
@@ -159,14 +327,29 @@ const AdminChat: React.FC<AdminChatProps> = ({ themeColors, oasisId }) => {
     }
 
     try {
+      const memberRef = doc(db, 'oasis', oasisId, 'members', user.uid);
+      const memberDoc = await getDoc(memberRef);
+      
+      if (!memberDoc.exists()) {
+        toast({
+          title: 'Error',
+          description: 'You must be a member to send messages',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const memberData = memberDoc.data();
+      
       const messagesRef = collection(db, 'oasis', oasisId, 'adminMessages');
       await addDoc(messagesRef, {
-        author: user.displayName || 'Unknown Admin',
+        author: memberData.displayName || user.displayName || 'Unknown Admin',
         authorId: user.uid,
-        authorRole: 'Admin',
+        authorRole: memberData.role || 'Admin',
         content: newMessage,
         timestamp: serverTimestamp(),
         isPinned: false,
+        authorPhotoURL: memberData.photoURL || userProfile?.photoURL || user.photoURL
       });
 
       setNewMessage('');
@@ -261,59 +444,84 @@ const AdminChat: React.FC<AdminChatProps> = ({ themeColors, oasisId }) => {
     }
   };
 
-  const renderMessage = (message: Message, isPinnedSection: boolean = false) => (
-    <div
-      key={message.id}
-      className={`relative group ${
-        message.isPinned ? 'bg-gray-800/50' : 'bg-gray-900/30'
-      } p-4 rounded-lg mb-2`}
-    >
-      <div className="flex items-start space-x-3">
-        <Avatar className="h-8 w-8">
-          <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${message.author}`} />
-          <AvatarFallback>{message.author[0]}</AvatarFallback>
-        </Avatar>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center space-x-2">
-            <span className="font-semibold text-white text-sm">
-              {message.author}
-              <span className="ml-2 text-xs text-blue-400">
-                {message.authorRole}
+  const renderMessage = (message: MessageWithRole) => {
+    return (
+      <div
+        key={message.id}
+        className={`relative group ${
+          message.isPinned ? 'bg-gray-800/50' : 'bg-gray-900/30'
+        } p-4 rounded-lg mb-2`}
+      >
+        <div className="flex items-start space-x-3">
+          <Avatar className="h-8 w-8">
+            <AvatarImage 
+              src={
+                userProfiles[message.authorId]?.photoURL || 
+                message.authorPhotoURL || 
+                `https://api.dicebear.com/6.x/initials/svg?seed=${message.author}`
+              } 
+              alt={message.author}
+              onError={(e) => {
+                const img = e.target as HTMLImageElement;
+                img.src = `https://api.dicebear.com/6.x/initials/svg?seed=${message.author}`;
+              }}
+            />
+            <AvatarFallback>{message.author[0]?.toUpperCase() || '?'}</AvatarFallback>
+          </Avatar>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center">
+              <span className="font-semibold text-white">
+                {message.author}
+                {message.userRole && (
+                  <span 
+                    className={`ml-2 text-xs px-2 py-0.5 rounded ${
+                      message.userRole === 'owner' 
+                        ? 'bg-yellow-500/20 text-yellow-300'
+                        : message.userRole === 'administrator'
+                        ? 'bg-red-500/20 text-red-300'
+                        : 'bg-blue-500/20 text-blue-300'
+                    }`}
+                  >
+                    {message.userRole === 'owner' 
+                      ? 'Owner'
+                      : message.userRole === 'administrator'
+                      ? 'Admin'
+                      : 'Mod'
+                    }
+                  </span>
+                )}
               </span>
-            </span>
-            <span className="text-xs text-gray-400">
-              {message.timestamp.toLocaleTimeString()}
-            </span>
-            {message.isPinned && !isPinnedSection && (
-              <Pin className="h-3 w-3 text-red-400" />
-            )}
+              <span className="text-sm text-gray-400 ml-2">
+                {message.timestamp.toLocaleTimeString()}
+              </span>
+            </div>
+            <p className="text-gray-200 mt-1 text-sm leading-relaxed break-words">
+              {message.content}
+            </p>
           </div>
-          <p className="text-gray-200 mt-1 text-sm leading-relaxed break-words">
-            {message.content}
-          </p>
-        </div>
-        <div className="flex space-x-2">
-          <Button
-            onClick={() => togglePin(message.id, !!message.isPinned)}
-            variant="ghost"
-            className="opacity-0 group-hover:opacity-100 transition-opacity"
-          >
-            <Pin className={`h-4 w-4 ${message.isPinned ? 'text-red-400' : 'text-gray-400'}`} />
-          </Button>
-          <Button
-            onClick={() => {
-              setSelectedMessage(message);
-              setIsReportDialogOpen(true);
-            }}
-            variant="ghost"
-            className="opacity-0 group-hover:opacity-100 transition-opacity"
-          >
-            <AlertTriangle className="h-4 w-4 text-yellow-500" />
-          </Button>
+          <div className="flex space-x-2">
+            <Button
+              onClick={() => togglePin(message.id, !!message.isPinned)}
+              variant="ghost"
+              className="opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <Pin className={`h-4 w-4 ${message.isPinned ? 'text-red-400' : 'text-gray-400'}`} />
+            </Button>
+            <Button
+              onClick={() => {
+                setSelectedMessage(message);
+                setIsReportDialogOpen(true);
+              }}
+              variant="ghost"
+              className="opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <AlertTriangle className="h-4 w-4 text-yellow-500" />
+            </Button>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const filteredMessages = messages.filter(message => 
     message.content.toLowerCase().includes(searchTerm.toLowerCase()) ||

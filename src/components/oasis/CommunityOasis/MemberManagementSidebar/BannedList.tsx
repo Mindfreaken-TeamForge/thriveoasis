@@ -6,8 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Search, UserCheck, Clock } from 'lucide-react';
 import { ThemeColors } from '@/themes';
 import { db } from '@/firebase';
-import { collection, query, orderBy, onSnapshot, doc, deleteDoc, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, doc, deleteDoc, addDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { useToast } from '@/components/ui/use-toast';
+import { useAuth } from '@/lib/auth';
 
 interface BannedUser {
   id: string;
@@ -51,28 +52,45 @@ const BannedList: React.FC<BannedListProps> = ({ oasisId, themeColors }) => {
   const [bannedUsers, setBannedUsers] = useState<BannedUser[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [hasAccess, setHasAccess] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
 
+  // Check access first
   useEffect(() => {
-    // Add mock data to Firestore
-    const initializeMockData = async () => {
-      const bannedMembersRef = collection(db, 'oasis', oasisId, 'bannedMembers');
-      
-      for (const mockUser of mockBannedUsers) {
-        try {
-          await addDoc(bannedMembersRef, {
-            userName: mockUser.name,
-            reason: mockUser.reason,
-            bannedAt: serverTimestamp(),
-            bannedBy: mockUser.bannedBy,
-          });
-        } catch (error) {
-          console.error('Error adding mock data:', error);
+    const checkAccess = async () => {
+      if (!user || !oasisId) {
+        setHasAccess(false);
+        return;
+      }
+
+      try {
+        const memberRef = doc(db, 'oasis', oasisId, 'members', user.uid);
+        const memberDoc = await getDoc(memberRef);
+        
+        if (memberDoc.exists()) {
+          const data = memberDoc.data();
+          const hasModAccess = 
+            data.role === 'owner' || 
+            data.role === 'administrator' ||
+            data.permissions?.includes('moderate_content');
+          setHasAccess(hasModAccess);
+        } else {
+          setHasAccess(false);
         }
+      } catch (error) {
+        console.error('Error checking access:', error);
+        setHasAccess(false);
       }
     };
 
-    // Set up real-time listener
+    checkAccess();
+  }, [user, oasisId]);
+
+  // Load banned users only if has access
+  useEffect(() => {
+    if (!hasAccess || !oasisId) return;
+
     const bannedUsersRef = collection(db, 'oasis', oasisId, 'bannedMembers');
     const q = query(bannedUsersRef, orderBy('bannedAt', 'desc'));
 
@@ -100,19 +118,14 @@ const BannedList: React.FC<BannedListProps> = ({ oasisId, themeColors }) => {
       setIsLoading(false);
     });
 
-    // Initialize with mock data if no banned users exist
-    if (bannedUsers.length === 0) {
-      initializeMockData();
-    }
-
     return () => unsubscribe();
-  }, [oasisId, toast]);
+  }, [oasisId, hasAccess, toast]);
 
   const handleUnban = async (userId: string) => {
-    try {
-      // Remove from banned members collection
-      await deleteDoc(doc(db, 'oasis', oasisId, 'bannedMembers', userId));
+    if (!hasAccess) return;
 
+    try {
+      await deleteDoc(doc(db, 'oasis', oasisId, 'bannedMembers', userId));
       toast({
         title: 'Success',
         description: 'User has been unbanned',
@@ -131,6 +144,10 @@ const BannedList: React.FC<BannedListProps> = ({ oasisId, themeColors }) => {
     user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.reason.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  if (!hasAccess) {
+    return null;
+  }
 
   if (isLoading) {
     return (

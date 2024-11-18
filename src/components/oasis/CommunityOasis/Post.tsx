@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Flag, SmilePlus, Trash2, Edit2, History, X, Check, Image, FileText, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,9 +9,11 @@ import { ThemeColors } from '@/themes';
 import ReportDialog from './ReportDialog';
 import { ReactionPicker } from './ReactionPicker';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { doc, updateDoc, arrayUnion, arrayRemove, deleteDoc, Timestamp, increment, deleteField } from 'firebase/firestore';
+import { doc, updateDoc, arrayUnion, arrayRemove, deleteDoc, Timestamp, increment, deleteField, getDoc, onSnapshot } from 'firebase/firestore';
 import type { ThemeMode } from '@/components/ThemeSelector/ThemeMode';
 import type { Emote } from '@/types/upload';
+import { useUserProfile } from '@/hooks/useUserProfiles';
+import { useUserRole } from '@/hooks/useUserRole';
 
 interface EditHistory {
   content: string;
@@ -24,6 +26,11 @@ interface Attachment {
   name: string;
   type: string;
   size: number;
+}
+
+interface UserProfile {
+  photoURL?: string;
+  displayName?: string;
 }
 
 interface Post {
@@ -82,6 +89,8 @@ const Post: React.FC<PostProps> = ({
   const [pickerAnchorEl, setPickerAnchorEl] = useState<HTMLButtonElement | null>(null);
   const { toast } = useToast();
   const currentUser = auth.currentUser;
+  const userProfile = useUserProfile(post.authorId);
+  const userRole = useUserRole(oasisId, post.authorId);
 
   const getBackground = () => {
     switch (themeMode) {
@@ -320,11 +329,41 @@ const Post: React.FC<PostProps> = ({
         {shouldShowHeader() && (
           <div className="flex items-center space-x-2 mb-2">
             <Avatar className="h-6 w-6">
-              <AvatarImage src={`https://api.dicebear.com/6.x/initials/svg?seed=${post.author}`} />
-              <AvatarFallback>{post.author[0]}</AvatarFallback>
+              <AvatarImage 
+                src={
+                  userProfile?.photoURL || 
+                  `https://api.dicebear.com/6.x/initials/svg?seed=${post.author}`
+                } 
+                alt={post.author}
+                onError={(e) => {
+                  const img = e.target as HTMLImageElement;
+                  img.src = `https://api.dicebear.com/6.x/initials/svg?seed=${post.author}`;
+                }}
+              />
+              <AvatarFallback>{post.author[0]?.toUpperCase() || '?'}</AvatarFallback>
             </Avatar>
             <div>
-              <span className="font-semibold text-white">{post.author}</span>
+              <span className="font-semibold text-white">
+                {post.author}
+                {userRole && (
+                  <span 
+                    className={`ml-2 text-xs px-2 py-0.5 rounded ${
+                      userRole === 'owner' 
+                        ? 'bg-yellow-500/20 text-yellow-300'
+                        : userRole === 'administrator'
+                        ? 'bg-red-500/20 text-red-300'
+                        : 'bg-blue-500/20 text-blue-300'
+                    }`}
+                  >
+                    {userRole === 'owner' 
+                      ? 'Owner'
+                      : userRole === 'administrator'
+                      ? 'Admin'
+                      : 'Mod'
+                    }
+                  </span>
+                )}
+              </span>
               <span className="text-sm text-gray-400 ml-2">
                 {formatEditTime(post.timestamp)}
               </span>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,13 +9,19 @@ import { auth } from '@/firebase';
 import OasisCreationModal from '../OasisCreationModal';
 import OwnerOasisCard from '../OwnerOasisCard';
 import JoinedOasisCard from '../JoinedOasisCard';
-import Settings from '../Settings';
+import SettingsComponent from '../Settings';
 import { tokenService } from '@/services/tokenService';
 import { joinOasis } from '@/services/oasisService';
 import CommunityOwnerOasis from '../oasis/CommunityOasis/CommunityOwnerOasis';
 import GamerOwnerOasis from '../oasis/GamerOasis/GamerOwnerOasis';
 import ContentCreatorOwnerOasis from '../oasis/ContentCreatorOasis/ContentCreatorOwnerOasis';
 import { themes } from '@/themes';
+import { useAuth } from '@/lib/auth';
+import { User, Cog, Camera, Mail, MapPin, Gamepad2, Trophy, Youtube, Twitch, Twitter, Link2 } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ProfilePictureUpload } from '@/components/ui/ProfilePictureUpload';
 
 interface Oasis {
   id: string;
@@ -41,6 +47,21 @@ interface DashboardContentProps {
   onLogout: () => void;
 }
 
+interface Profile {
+  displayName: string;
+  photoURL: string;
+  bio: string;
+  role: string;
+  games: string[];
+  socialLinks: {
+    youtube?: string;
+    twitch?: string;
+    twitter?: string;
+    other?: string;
+  };
+  achievements: string[];
+}
+
 export default function DashboardContent({
   activeNav,
   selectedOasis,
@@ -57,6 +78,17 @@ export default function DashboardContent({
   const [newOasisName, setNewOasisName] = useState('');
   const [isJoining, setIsJoining] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
+  const [isEditing, setIsEditing] = useState(false);
+  const [profile, setProfile] = useState<Profile>({
+    displayName: user?.displayName || '',
+    photoURL: user?.photoURL || '',
+    bio: '',
+    role: '',
+    games: [],
+    socialLinks: {},
+    achievements: []
+  });
 
   const currentTheme = selectedOasis?.theme || 'Thrive Oasis(Default)';
   const themeColors = themes[currentTheme as keyof typeof themes] || themes['Thrive Oasis(Default)'];
@@ -82,6 +114,45 @@ export default function DashboardContent({
     fontSize: '0.875rem',
     padding: '0 1rem',
   };
+
+  const shinyBlackButtonStyle = {
+    background: 'linear-gradient(145deg, #2c3e50, #1a2533)',
+    color: '#fff',
+    textShadow: '0 0 5px rgba(255,255,255,0.5)',
+    boxShadow: '0 0 10px rgba(0,0,0,0.5), inset 0 0 5px rgba(255,255,255,0.2)',
+    border: 'none',
+    transition: 'all 0.1s ease',
+    height: '44px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '0.875rem',
+    fontWeight: '500',
+    padding: '0 1.5rem',
+    cursor: 'pointer', // Improves feedback for hover
+  };
+
+  const shinyBlackIconButtonStyle = {
+    background: 'linear-gradient(145deg, #2c3e50, #1a2533)',
+    color: '#fff',
+    textShadow: '0 0 5px rgba(255,255,255,0.5)',
+    boxShadow: '0 0 10px rgba(0,0,0,0.5), inset 0 0 5px rgba(255,255,255,0.2)',
+    border: 'none',
+    transition: 'all 0.1s ease',
+    width: '32px',
+    height: '32px',
+    padding: '0',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    position: 'absolute',
+    bottom: '-4px',
+    right: '-4px',
+    borderRadius: '50%',
+  };
+  
+  
 
   const handleJoinOasis = async () => {
     if (!joinOasisCode.trim()) {
@@ -247,6 +318,24 @@ export default function DashboardContent({
     }
   };
 
+  const handleSave = async () => {
+    try {
+      // Here you would typically save to your backend/firebase
+      // For now, we'll just update the local state
+      setIsEditing(false);
+      toast({
+        title: "Success",
+        description: "Profile updated successfully",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update profile",
+        variant: "destructive",
+      });
+    }
+  };
+
   const renderContent = () => {
     if (selectedOasis) {
       return renderOasisContent();
@@ -254,7 +343,7 @@ export default function DashboardContent({
 
     switch (activeNav) {
       case 'settings':
-        return <Settings onLogout={onLogout} />;
+        return <SettingsComponent onLogout={onLogout} />;
       
       case 'oasis':
         return (
@@ -418,6 +507,234 @@ export default function DashboardContent({
               </CardContent>
             </Card>
           </motion.div>
+        );
+
+      case 'profile':
+        return (
+          <div className="p-6 max-w-4xl mx-auto">
+            <div className="bg-gray-900 rounded-lg shadow-xl p-8">
+              {/* Header */}
+              <div className="flex justify-between items-center mb-8">
+                <h1 className="text-2xl font-bold text-white">Profile Settings</h1>
+                <Button
+                  onClick={() => setIsEditing(!isEditing)}
+                  style={shinyBlackButtonStyle}
+                  className="hover:opacity-90"
+                >
+                  {isEditing ? 'Cancel' : 'Edit Profile'}
+                </Button>
+              </div>
+
+              {/* Profile Picture Section */}
+              <div className="flex items-center gap-4">
+                <ProfilePictureUpload 
+                  currentPhotoURL={profile.photoURL}
+                  size="lg"
+                  onUploadComplete={(url) => setProfile({ ...profile, photoURL: url })}
+                />
+                <div className="flex-1">
+                  {isEditing ? (
+                    <Input
+                      value={profile.displayName}
+                      onChange={(e) => setProfile({ ...profile, displayName: e.target.value })}
+                      className="bg-gray-800 border-gray-700 text-white text-xl h-10 px-4"
+                      placeholder="Display Name"
+                    />
+                  ) : (
+                    <h2 className="text-xl font-semibold text-white">{profile.displayName}</h2>
+                  )}
+                </div>
+              </div>
+
+              {/* Role Selection */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-400 mb-2">
+                  <User className="inline-block w-4 h-4 mr-2" />
+                  Role
+                </label>
+                {isEditing ? (
+                  <Select
+                    value={profile.role}
+                    onValueChange={(value) => setProfile({ ...profile, role: value })}
+                  >
+                    <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
+                      <SelectValue placeholder="Select your role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="content-creator">Content Creator</SelectItem>
+                      <SelectItem value="pro-player">Pro Player</SelectItem>
+                      <SelectItem value="streamer">Streamer</SelectItem>
+                      <SelectItem value="editor">Editor</SelectItem>
+                      <SelectItem value="artist">Artist</SelectItem>
+                      <SelectItem value="fan">Fan/Supporter</SelectItem>
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <p className="text-gray-300 capitalize">{profile.role || 'No role set'}</p>
+                )}
+              </div>
+
+              {/* Bio */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-400 mb-2">Bio</label>
+                {isEditing ? (
+                  <Textarea
+                    value={profile.bio}
+                    onChange={(e) => setProfile({ ...profile, bio: e.target.value })}
+                    className="bg-gray-800 border-gray-700 text-white"
+                    placeholder="Tell us about yourself..."
+                    rows={4}
+                  />
+                ) : (
+                  <p className="text-gray-300">{profile.bio || 'No bio added yet'}</p>
+                )}
+              </div>
+
+              {/* Games */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-400 mb-2">
+                  <Gamepad2 className="inline-block w-4 h-4 mr-2" />
+                  Games
+                </label>
+                {isEditing ? (
+                  <div className="space-y-2">
+                    <Input
+                      className="bg-gray-800 border-gray-700 text-white text-xl h-10 px-4"
+                      placeholder="Add games (comma separated)"
+                      value={profile.games.join(', ')}
+                      onChange={(e) => setProfile({ 
+                        ...profile, 
+                        games: e.target.value.split(',').map(game => game.trim()) 
+                      })}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {profile.games.map((game, index) => (
+                      <span 
+                        key={index}
+                        className="px-3 py-1 bg-gray-800 rounded-full text-sm text-gray-300"
+                      >
+                        {game}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Social Links */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-400 mb-2">
+                  <Link2 className="inline-block w-4 h-4 mr-2" />
+                  Social Links
+                </label>
+                {isEditing ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center space-x-2">
+                      <Youtube className="w-5 h-5 text-red-500" />
+                      <Input
+                        className="bg-gray-800 border-gray-700 text-white text-xl h-6 px-4"
+                        placeholder="YouTube Channel URL"
+                        value={profile.socialLinks.youtube || ''}
+                        onChange={(e) => setProfile({
+                          ...profile,
+                          socialLinks: { ...profile.socialLinks, youtube: e.target.value }
+                        })}
+                      />
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Twitch className="w-5 h-5 text-purple-500" />
+                      <Input
+                        className="bg-gray-800 border-gray-700 text-white text-xl h-6 px-4"
+                        placeholder="Twitch Channel URL"
+                        value={profile.socialLinks.twitch || ''}
+                        onChange={(e) => setProfile({
+                          ...profile,
+                          socialLinks: { ...profile.socialLinks, twitch: e.target.value }
+                        })}
+                      />
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Twitter className="w-5 h-5 text-blue-500" />
+                      <Input
+                        className="bg-gray-800 border-gray-700 text-white text-xl h-6 px-4"
+                        placeholder="Twitter Profile URL"
+                        value={profile.socialLinks.twitter || ''}
+                        onChange={(e) => setProfile({
+                          ...profile,
+                          socialLinks: { ...profile.socialLinks, twitter: e.target.value }
+                        })}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {Object.entries(profile.socialLinks).map(([platform, url]) => (
+                      url && (
+                        <a
+                          key={platform}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center space-x-2 text-gray-300 hover:text-white"
+                        >
+                          {platform === 'youtube' && <Youtube className="w-4 h-4 text-red-500" />}
+                          {platform === 'twitch' && <Twitch className="w-4 h-4 text-purple-500" />}
+                          {platform === 'twitter' && <Twitter className="w-4 h-4 text-blue-500" />}
+                          <span>{url}</span>
+                        </a>
+                      )
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Achievements */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-400 mb-2">
+                  <Trophy className="inline-block w-4 h-4 mr-2" />
+                  Achievements
+                </label>
+                {isEditing ? (
+                  <Textarea
+                    value={profile.achievements.join('\n')}
+                    onChange={(e) => setProfile({ 
+                      ...profile, 
+                      achievements: e.target.value.split('\n').filter(achievement => achievement.trim()) 
+                    })}
+                    className="bg-gray-800 border-gray-700 text-white"
+                    placeholder="Add your achievements (one per line)"
+                    rows={4}
+                  />
+                ) : (
+                  <div className="space-y-2">
+                    {profile.achievements.map((achievement, index) => (
+                      <div 
+                        key={index}
+                        className="flex items-center space-x-2 text-gray-300"
+                      >
+                        <Trophy className="w-4 h-4 text-yellow-500" />
+                        <span>{achievement}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Save Button */}
+              {isEditing && (
+                <div className="mt-8">
+                  <Button
+                    onClick={handleSave}
+                    style={shinyBlackButtonStyle}
+                    className="hover:opacity-90"
+                  >
+                    Save Changes
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
         );
 
       default:

@@ -1,19 +1,20 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   BarChart,
   Bell,
   ChevronDown,
   ChevronsUpDown,
-  Flame,
-  Home,
   LogOut,
   MessageCircle,
   Settings,
   Users,
   UserPlus,
   Gamepad2,
+  User,
+  HelpCircle,
 } from 'lucide-react';
+import { useAuth } from '@/lib/auth';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -47,6 +48,7 @@ import {
   SidebarProvider,
 } from '@/components/ui/sidebar';
 import { auth } from '@/firebase';
+import { ProfileModal } from '../ProfileModal';
 
 interface Oasis {
   id: string;
@@ -72,7 +74,7 @@ const data = {
     {
       title: 'Stats',
       icon: BarChart,
-      items: ['Home', 'Apex', 'Valorant', 'Fortnite', 'Call of Duty'],
+      items: ['Valorant', 'Apex', 'Fortnite'],
     },
     {
       title: 'Oasis',
@@ -104,6 +106,36 @@ const CombinedSidebar: React.FC<CombinedSidebarProps> = ({
 }) => {
   const [openItems, setOpenItems] = useState<string[]>([]);
   const user = auth.currentUser;
+  const { user: authUser, signOut } = useAuth();
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [userProfile, setUserProfile] = useState({
+    displayName: authUser?.displayName || '',
+    photoURL: authUser?.photoURL || ''
+  });
+
+  useEffect(() => {
+    const handleProfileUpdate = () => {
+      if (authUser) {
+        setUserProfile({
+          displayName: authUser.displayName || '',
+          photoURL: authUser.photoURL || ''
+        });
+      }
+    };
+
+    window.addEventListener('profileUpdated', handleProfileUpdate);
+    return () => window.removeEventListener('profileUpdated', handleProfileUpdate);
+  }, [authUser]);
+
+  useEffect(() => {
+    if (authUser) {
+      setUserProfile({
+        displayName: authUser.displayName || '',
+        photoURL: authUser.photoURL || ''
+      });
+    }
+  }, [authUser]);
 
   const sidebarStyle: React.CSSProperties = {
     background: 'rgb(17 24 39)',
@@ -148,6 +180,11 @@ const CombinedSidebar: React.FC<CombinedSidebarProps> = ({
       .toUpperCase();
   };
 
+  const handleProfileClick = (event: Event) => {
+    event.preventDefault();
+    setIsProfileModalOpen(true);
+  };
+
   return (
     <SidebarProvider>
       <Sidebar className="fixed left-0 top-0 h-screen z-50" style={sidebarStyle}>
@@ -167,7 +204,6 @@ const CombinedSidebar: React.FC<CombinedSidebarProps> = ({
                   }}
                   style={activeNav === 'home' ? activeMenuButtonStyle : menuButtonStyle}
                 >
-                  <Flame className="size-6 text-white" />
                   <div className="grid flex-1 text-left text-sm leading-tight">
                     <span className="font-semibold text-white">
                       ThriveOasis
@@ -305,7 +341,10 @@ const CombinedSidebar: React.FC<CombinedSidebarProps> = ({
         <SidebarFooter className="border-t border-gray-700">
           <SidebarMenu>
             <SidebarMenuItem>
-              <DropdownMenu>
+              <DropdownMenu 
+                open={dropdownOpen} 
+                onOpenChange={setDropdownOpen}
+              >
                 <DropdownMenuTrigger asChild>
                   <SidebarMenuButton
                     size="lg"
@@ -313,50 +352,75 @@ const CombinedSidebar: React.FC<CombinedSidebarProps> = ({
                   >
                     <Avatar className="h-8 w-8">
                       <AvatarImage
-                        src={user?.photoURL || undefined}
-                        alt={user?.displayName || 'User'}
+                        src={userProfile.photoURL}
+                        alt={userProfile.displayName || 'User'}
                       />
                       <AvatarFallback>
-                        {user?.displayName
-                          ? getInitials(user.displayName)
+                        {userProfile.displayName
+                          ? getInitials(userProfile.displayName)
                           : 'U'}
                       </AvatarFallback>
                     </Avatar>
                     <span className="ml-3 font-semibold text-white">
-                      {user?.displayName || 'User'}
+                      {userProfile.displayName || 'User'}
                     </span>
                     <ChevronsUpDown className="ml-auto size-4 text-white" />
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  className="w-[--radix-dropdown-menu-trigger-width] min-w-[240px] bg-[rgb(17,24,39)] border-gray-700"
-                  align="start"
-                  sideOffset={4}
-                >
-                  <DropdownMenuLabel className="text-center text-white">
-                    My Account
+                <DropdownMenuContent>
+                  <DropdownMenuLabel className="px-4 py-3 border-b border-gray-800">
+                    <div className="flex flex-col items-center gap-2">
+                      <Avatar className="w-12 h-12">
+                        <AvatarImage
+                          src={userProfile.photoURL}
+                          alt={userProfile.displayName || 'User'}
+                        />
+                        <AvatarFallback>
+                          {userProfile.displayName
+                            ? getInitials(userProfile.displayName)
+                            : 'U'}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="text-center">
+                        <p className="text-sm font-medium text-white">
+                          {userProfile.displayName || 'Guest User'}
+                        </p>
+                      </div>
+                    </div>
                   </DropdownMenuLabel>
-                  <DropdownMenuSeparator className="bg-gray-700" />
-                  <DropdownMenuGroup>
-                    <DropdownMenuItem className="justify-center text-white hover:bg-gray-700">
-                      Profile
-                    </DropdownMenuItem>
-                    <DropdownMenuItem className="justify-center text-white hover:bg-gray-700">
-                      <Bell className="mr-2 h-4 w-4" />
-                      <span>Notifications</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="justify-center text-white hover:bg-gray-700"
-                      onClick={() => setActiveNav('settings')}
-                    >
-                      <Settings className="mr-2 h-4 w-4" />
-                      <span>Settings</span>
-                    </DropdownMenuItem>
-                  </DropdownMenuGroup>
-                  <DropdownMenuSeparator className="bg-gray-700" />
-                  <DropdownMenuItem
-                    className="justify-center text-red-500 hover:bg-red-500/20 hover:text-red-400"
-                    onClick={onLogout}
+
+                  <ProfileModal 
+                    isOpen={isProfileModalOpen}
+                    onClose={() => {
+                      setIsProfileModalOpen(false);
+                      setDropdownOpen(false);
+                    }}
+                    onOpen={() => {
+                      setIsProfileModalOpen(true);
+                      setDropdownOpen(true);
+                    }}
+                  />
+
+                  <DropdownMenuItem className="px-4 py-2 hover:bg-gray-800 cursor-pointer">
+                    <Settings className="mr-2 h-4 w-4" />
+                    <span>Settings</span>
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem className="px-4 py-2 hover:bg-gray-800 cursor-pointer">
+                    <Bell className="mr-2 h-4 w-4" />
+                    <span>Notifications</span>
+                  </DropdownMenuItem>
+
+                  <DropdownMenuItem className="px-4 py-2 hover:bg-gray-800 cursor-pointer">
+                    <HelpCircle className="mr-2 h-4 w-4" />
+                    <span>Help & Support</span>
+                  </DropdownMenuItem>
+
+                  <DropdownMenuSeparator className="bg-gray-800" />
+
+                  <DropdownMenuItem 
+                    className="px-4 py-2 text-red-400 hover:bg-red-950 hover:text-red-300 cursor-pointer"
+                    onClick={() => signOut()}
                   >
                     <LogOut className="mr-2 h-4 w-4" />
                     <span>Log out</span>

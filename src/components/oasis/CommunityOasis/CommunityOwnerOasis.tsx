@@ -5,7 +5,7 @@ import { db, auth } from '@/firebase';
 import { useToast } from '@/components/ui/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import Community from './Community';
-import AdminPage from './admin/AdminPage';
+import AdminPage from './AdminPage';
 import ModerationPage from './moderation/ModerationPage';
 import OwnerPage from './owner/OwnerPage';
 import TokenManager from '@/components/TokenManagement/TokenManager';

@@ -29,7 +29,7 @@ service cloud.firestore {
     // User profiles and data
     match /users/{userId} {
       allow read: if isSignedIn();
-      allow write: if request.auth.uid == userId;
+      allow write, create, update, delete: if request.auth.uid == userId;
       
       match /createdOasis/{oasisId} {
         allow read: if isSignedIn();
@@ -44,60 +44,6 @@ service cloud.firestore {
       match /tokens/fcm {
         allow read, write: if request.auth.uid == userId;
       }
-      
-      // Oasis subcollection under users
-      match /oasis/{oasisId} {
-        allow read: if isSignedIn();
-        
-        // Polls collection
-        match /polls/{pollId} {
-          allow read: if (
-            isSignedIn() && 
-            (
-              request.auth.uid == userId || // Owner can read
-              isMember(oasisId) // Members can read
-            )
-          );
-          
-          allow create: if (
-            isSignedIn() &&
-            request.auth.uid == userId && // Only owner can create
-            hasPermission(oasisId, 'administrator')
-          );
-          
-          allow update: if (
-            isSignedIn() &&
-            (
-              request.auth.uid == userId || // Owner can update
-              isMember(oasisId) // Members can update (for voting)
-            )
-          );
-          
-          allow delete: if (
-            isSignedIn() &&
-            request.auth.uid == userId && // Only owner can delete
-            hasPermission(oasisId, 'administrator')
-          );
-          
-          // Poll votes subcollection
-          match /votes/{voteId} {
-            allow read: if isSignedIn() && isMember(oasisId);
-            allow create: if isSignedIn() && isMember(oasisId);
-            allow update: if isSignedIn() && request.auth.uid == resource.data.userId;
-            allow delete: if isSignedIn() && request.auth.uid == resource.data.userId;
-          }
-        }
-        
-        // Posts subcollection
-        match /posts/{postId} {
-          allow read: if isMember(oasisId);
-          allow create: if isMember(oasisId) && hasPermission(oasisId, 'send_messages');
-          allow update: if request.auth.uid == resource.data.authorId || 
-            hasPermission(oasisId, 'moderate_content');
-          allow delete: if request.auth.uid == resource.data.authorId || 
-            hasPermission(oasisId, 'moderate_content');
-        }
-      }
     }
 
     // Oasis documents
@@ -110,19 +56,28 @@ service cloud.firestore {
       // Members collection
       match /members/{memberId} {
         allow read: if isMember(oasisId);
-        allow create: if isOwner(oasisId) || hasPermission(oasisId, 'administrator');
-        allow update: if isOwner(oasisId) || 
-          (hasPermission(oasisId, 'administrator') && 
-           get(/databases/$(database)/documents/oasis/$(oasisId)/members/$(memberId)).data.role != 'owner');
-        allow delete: if isOwner(oasisId) || 
-          (hasPermission(oasisId, 'administrator') && 
-           get(/databases/$(database)/documents/oasis/$(oasisId)/members/$(memberId)).data.role != 'owner');
-      }
-      
-      // Roles collection
-      match /roles/{roleId} {
-        allow read: if isMember(oasisId);
-        allow write: if isOwner(oasisId) || hasPermission(oasisId, 'administrator');
+        allow update: if 
+          hasPermission(oasisId, 'moderate_content') && 
+          (
+            // Get the role of the member being modified
+            get(/databases/$(database)/documents/oasis/$(oasisId)/members/$(memberId)).data.role != 'owner' &&
+            (
+              // Mods can't modify admins or other mods
+              !hasPermission(oasisId, 'administrator') && 
+              get(/databases/$(database)/documents/oasis/$(oasisId)/members/$(memberId)).data.role != 'administrator' &&
+              get(/databases/$(database)/documents/oasis/$(oasisId)/members/$(memberId)).data.role != 'moderator'
+            ) ||
+            // Admins can modify mods but not other admins or owner
+            (
+              hasPermission(oasisId, 'administrator') &&
+              get(/databases/$(database)/documents/oasis/$(oasisId)/members/$(memberId)).data.role != 'administrator'
+            ) ||
+            // Owner can modify anyone except themselves
+            (
+              isOwner(oasisId) && 
+              memberId != request.auth.uid
+            )
+          );
       }
       
       // Messages collection
@@ -131,16 +86,14 @@ service cloud.firestore {
         allow create: if isMember(oasisId) && hasPermission(oasisId, 'send_messages');
         allow update: if request.auth.uid == resource.data.authorId || 
           hasPermission(oasisId, 'moderate_content');
-        allow delete: if request.auth.uid == resource.data.authorId || 
-          hasPermission(oasisId, 'moderate_content');
       }
       
       // Admin messages
       match /adminMessages/{messageId} {
         allow read: if hasPermission(oasisId, 'administrator');
         allow create: if hasPermission(oasisId, 'administrator');
-        allow update: if hasPermission(oasisId, 'administrator');
-        allow delete: if false; // Admin messages cannot be deleted
+        allow update: if request.auth.uid == resource.data.authorId || 
+          hasPermission(oasisId, 'administrator');
       }
       
       // Files collection
@@ -178,7 +131,7 @@ service cloud.firestore {
       
       // Unban requests
       match /unbanRequests/{requestId} {
-        allow read: if isSignedIn() && isMember(oasisId);  // Allow members to read and list
+        allow read: if isSignedIn() && isMember(oasisId);
         
         allow create: if (
           isSignedIn() && 
@@ -193,9 +146,30 @@ service cloud.firestore {
       
       // Banned members collection
       match /bannedMembers/{userId} {
-        allow read: if isMember(oasisId);
-        allow write: if hasPermission(oasisId, 'administrator') || 
-                    hasPermission(oasisId, 'moderate_content');
+        allow read: if hasPermission(oasisId, 'moderate_content');
+        
+        allow write: if 
+          hasPermission(oasisId, 'moderate_content') &&
+          (
+            // Get the role of the member being banned
+            get(/databases/$(database)/documents/oasis/$(oasisId)/members/$(userId)).data.role != 'owner' &&
+            (
+              // Mods can't ban admins or other mods
+              !hasPermission(oasisId, 'administrator') && 
+              get(/databases/$(database)/documents/oasis/$(oasisId)/members/$(userId)).data.role != 'administrator' &&
+              get(/databases/$(database)/documents/oasis/$(oasisId)/members/$(userId)).data.role != 'moderator'
+            ) ||
+            // Admins can ban mods but not other admins or owner
+            (
+              hasPermission(oasisId, 'administrator') &&
+              get(/databases/$(database)/documents/oasis/$(oasisId)/members/$(userId)).data.role != 'administrator'
+            ) ||
+            // Owner can ban anyone except themselves
+            (
+              isOwner(oasisId) && 
+              userId != request.auth.uid
+            )
+          );
       }
 
       // Emotes collection
@@ -211,11 +185,59 @@ service cloud.firestore {
         allow read: if hasPermission(oasisId, 'administrator') || isOwner(oasisId);
         allow write: if hasPermission(oasisId, 'administrator') || isOwner(oasisId);
       }
+
+      // Posts collection
+      match /posts/{postId} {
+        allow read: if isMember(oasisId);
+        allow create: if isMember(oasisId) && hasPermission(oasisId, 'send_messages');
+        allow update: if request.auth.uid == resource.data.authorId || 
+          hasPermission(oasisId, 'moderate_content');
+        allow delete: if hasPermission(oasisId, 'moderate_content') ||
+          (request.auth.uid == resource.data.authorId && 
+           request.time < resource.data.timestamp + duration.value(5, 'm'));
+      }
+
+      // Posts reactions subcollection
+      match /posts/{postId}/reactions/{reactionId} {
+        allow read: if isMember(oasisId);
+        allow write: if isMember(oasisId);
+      }
+
+      // Polls collection
+      match /polls/{pollId} {
+        allow read: if 
+          hasPermission(oasisId, 'administrator') || 
+          isOwner(oasisId);
+        
+        allow create, update, delete: if 
+          hasPermission(oasisId, 'administrator') || 
+          isOwner(oasisId);
+
+        // Poll votes
+        match /votes/{voteId} {
+          allow read, write: if 
+            hasPermission(oasisId, 'administrator') || 
+            isOwner(oasisId);
+        }
+
+        // Poll options
+        match /options/{optionId} {
+          allow read, write: if 
+            hasPermission(oasisId, 'administrator') || 
+            isOwner(oasisId);
+        }
+      }
+
+      // Add rules for poll results
+      match /pollResults/{resultId} {
+        allow read, write: if 
+          hasPermission(oasisId, 'administrator') || 
+          isOwner(oasisId);
+      }
     }
 
     // Global system collection
     match /system/{docId} {
-      // Allow access to oasisEmoteCounter for authenticated users
       allow read, write: if request.auth != null && (
         docId == 'oasisEmoteCounter' ||
         docId == 'globalEmoteCounter'
@@ -230,5 +252,30 @@ service cloud.firestore {
         isOwner(oasisId)
       );
     }
+
+    // Allow batch operations for profile updates
+    match /{path=**}/messages/{messageId} {
+      allow read: if request.auth != null;
+      allow update: if request.auth != null && request.auth.uid == resource.data.authorId;
+    }
+
+    match /{path=**}/members/{memberId} {
+      allow read: if request.auth != null;
+      allow update: if request.auth != null && request.auth.uid == memberId;
+    }
+
+    match /{path=**}/adminMessages/{messageId} {
+      allow read: if request.auth != null;
+      allow update: if request.auth != null && request.auth.uid == resource.data.authorId;
+    }
+
+    // User's personal posts collection
+    match /users/{userId}/oasis/{oasisId}/posts/{postId} {
+      allow read: if request.auth.uid == userId && 
+        isMember(oasisId);
+      allow write: if request.auth.uid == userId && 
+        isMember(oasisId) && 
+        hasPermission(oasisId, 'send_messages');
+    }
   }
-} 
+}

@@ -102,21 +102,21 @@ const PollManager: React.FC<PollManagerProps> = ({ themeColors, oasisId }) => {
       return;
     }
 
-    const pollsRef = collection(db, 'users', user.uid, 'oasis', oasisId, 'polls');
+    const pollsRef = collection(db, 'oasis', oasisId, 'polls');
     const q = query(pollsRef, orderBy('createdAt', 'desc'));
 
     const unsubscribe = onSnapshot(q, 
       (snapshot) => {
         const pollsData: Poll[] = [];
-        snapshot.forEach((doc) => {
-          const data = doc.data();
+        snapshot.forEach((docSnapshot) => {
+          const data = docSnapshot.data();
           const createdAt = data.createdAt as Timestamp;
           const endAt = data.endAt as Timestamp;
           const endedAt = data.endedAt as Timestamp | undefined;
 
           if (createdAt) {
             pollsData.push({
-              id: doc.id,
+              id: docSnapshot.id,
               question: data.question,
               options: data.options.map((opt: any) => ({
                 ...opt,
@@ -154,7 +154,7 @@ const PollManager: React.FC<PollManagerProps> = ({ themeColors, oasisId }) => {
       const user = auth.currentUser;
       if (!user) return;
 
-      const pollsRef = collection(db, 'users', user.uid, 'oasis', oasisId, 'polls');
+      const pollsRef = collection(db, 'oasis', oasisId, 'polls');
       const pollsSnapshot = await getDocs(pollsRef);
 
       pollsSnapshot.forEach(async (pollDoc) => {
@@ -212,9 +212,10 @@ const PollManager: React.FC<PollManagerProps> = ({ themeColors, oasisId }) => {
         isActive: true,
         createdAt: serverTimestamp(),
         endAt: Timestamp.fromDate(endAt),
+        createdBy: user.uid
       };
 
-      const pollsRef = collection(db, 'users', user.uid, 'oasis', oasisId, 'polls');
+      const pollsRef = collection(db, 'oasis', oasisId, 'polls');
       await addDoc(pollsRef, pollData);
 
       setNewPollQuestion('');
