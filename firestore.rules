@@ -33,7 +33,7 @@ service cloud.firestore {
       
       match /createdOasis/{oasisId} {
         allow read: if isSignedIn();
-        allow write: if request.auth.uid == userId;
+        allow create, write: if request.auth.uid == userId;
       }
       
       match /joinedOasis/{oasisId} {
@@ -48,36 +48,22 @@ service cloud.firestore {
 
     // Oasis documents
     match /oasis/{oasisId} {
-      allow read: if isMember(oasisId) || isOwner(oasisId);
-      allow create: if isSignedIn();
+      allow read: if true;
+      allow create: if isSignedIn() && 
+                   request.resource.data.ownerId == request.auth.uid;
       allow update: if isOwner(oasisId) || hasPermission(oasisId, 'administrator');
       allow delete: if isOwner(oasisId);
       
       // Members collection
       match /members/{memberId} {
-        allow read: if isMember(oasisId);
-        allow update: if 
-          hasPermission(oasisId, 'moderate_content') && 
-          (
-            // Get the role of the member being modified
-            get(/databases/$(database)/documents/oasis/$(oasisId)/members/$(memberId)).data.role != 'owner' &&
-            (
-              // Mods can't modify admins or other mods
-              !hasPermission(oasisId, 'administrator') && 
-              get(/databases/$(database)/documents/oasis/$(oasisId)/members/$(memberId)).data.role != 'administrator' &&
-              get(/databases/$(database)/documents/oasis/$(oasisId)/members/$(memberId)).data.role != 'moderator'
-            ) ||
-            // Admins can modify mods but not other admins or owner
-            (
-              hasPermission(oasisId, 'administrator') &&
-              get(/databases/$(database)/documents/oasis/$(oasisId)/members/$(memberId)).data.role != 'administrator'
-            ) ||
-            // Owner can modify anyone except themselves
-            (
-              isOwner(oasisId) && 
-              memberId != request.auth.uid
-            )
-          );
+        allow read: if true;
+        allow create: if isSignedIn() && (
+          // Allow owner to create their own member document
+          (request.auth.uid == memberId && 
+           get(/databases/$(database)/documents/oasis/$(oasisId)).data.ownerId == request.auth.uid)
+        );
+        allow update: if request.auth.uid == memberId || 
+          hasPermission(oasisId, 'administrator');
       }
       
       // Messages collection

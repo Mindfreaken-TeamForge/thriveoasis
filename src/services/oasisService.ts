@@ -12,9 +12,10 @@ import {
   orderBy,
   setDoc,
   addDoc,
+  Firestore,
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import { sanitizeId, generateUniqueId } from '../utils/helpers';
+import { auth } from '../firebase';
 
 interface OasisData {
   name: string;
@@ -30,70 +31,48 @@ interface OasisData {
   monthlyPrice?: number;
 }
 
-export const createOasis = async (ownerId: string, oasisData: OasisData) => {
+export const createOasis = async (oasisData: OasisData) => {
   try {
-    // Generate a 9-digit random number
-    const randomId = Math.floor(Math.random() * 900000000) + 100000000;
-    
-    // Create oasis ID using name-type-randomId format
-    const oasisId = `${sanitizeId(oasisData.name)}-${sanitizeId(oasisData.type)}-${randomId}`;
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      throw new Error('User must be authenticated to create an oasis');
+    }
 
-    // Create main oasis document with owner ID
-    const oasisRef = doc(db, 'oasis', oasisId);
-    await setDoc(oasisRef, {
+    // First create the oasis document
+    const oasisRef = doc(collection(db, 'oasis'));
+    const enrichedOasisData = {
       ...oasisData,
-      ownerId, // Explicitly set the owner ID
+      ownerId: currentUser.uid,
       createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
       memberCount: 1,
-      status: 'active',
+      status: 'active'
+    };
+
+    // Do these operations sequentially instead of in a transaction
+    await setDoc(oasisRef, enrichedOasisData);
+
+    // Then create the owner's member document
+    const memberRef = doc(db, 'oasis', oasisRef.id, 'members', currentUser.uid);
+    await setDoc(memberRef, {
+      userId: currentUser.uid,
+      role: 'owner',
+      permissions: ['administrator'],
+      joinedAt: serverTimestamp(),
+      status: 'active'
     });
 
-    // Create reference in user's created oasis collection
-    const userOasisRef = doc(db, 'users', ownerId, 'createdOasis', oasisId);
+    // Finally add to user's created oasis collection
+    const userOasisRef = doc(db, 'users', currentUser.uid, 'createdOasis', oasisRef.id);
     await setDoc(userOasisRef, {
-      oasisId,
+      oasisId: oasisRef.id,
       name: oasisData.name,
       type: oasisData.type,
       theme: oasisData.theme,
       createdAt: serverTimestamp(),
-      status: 'active',
+      status: 'active'
     });
 
-    // Create initial member document for owner with owner role
-    const membersRef = collection(db, 'oasis', oasisId, 'members');
-    await setDoc(doc(membersRef, ownerId), {
-      userId: ownerId,
-      role: 'owner',
-      permissions: ['administrator'],
-      joinedAt: serverTimestamp(),
-      status: 'active',
-    });
-
-    // Create default roles
-    const rolesRef = collection(db, 'oasis', oasisId, 'roles');
-    await Promise.all([
-      addDoc(rolesRef, {
-        name: 'Member',
-        permissions: ['view_content', 'create_posts'],
-        isDefault: true,
-        createdAt: serverTimestamp(),
-      }),
-      addDoc(rolesRef, {
-        name: 'Moderator',
-        permissions: ['view_content', 'create_posts', 'moderate_content'],
-        isDefault: true,
-        createdAt: serverTimestamp(),
-      }),
-      addDoc(rolesRef, {
-        name: 'Administrator',
-        permissions: ['administrator'],
-        isDefault: true,
-        createdAt: serverTimestamp(),
-      }),
-    ]);
-
-    return oasisId;
+    return oasisRef.id;
   } catch (error) {
     console.error('Error creating oasis:', error);
     throw error;

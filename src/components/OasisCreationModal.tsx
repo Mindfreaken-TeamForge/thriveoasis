@@ -14,20 +14,22 @@ import { createOasis } from '../services/oasisService';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from './ui/card';
 
 interface OasisData {
+  id?: string;
   name: string;
   type: string;
-  types?: string[];
-  color: string;
-  imageUrl?: string;
   theme: string;
   themeMode: ThemeMode;
+  imageUrl?: string;
+  color: string;
   ownerId: string;
-  memberCount?: number;
   tier?: string;
   features?: string[];
   extraEmotes?: number;
   extraStickers?: number;
   monthlyPrice?: number;
+  memberCount?: number;
+  status?: string;
+  createdAt?: Date;
 }
 
 interface OasisCreationModalProps {
@@ -268,42 +270,42 @@ const OasisCreationModal: React.FC<OasisCreationModalProps> = ({
   };
 
   const handleCreateOasis = async () => {
-    if (!selectedOasisType) return;
-
-    const user = auth.currentUser;
-    if (!user) {
-      toast({
-        title: 'Error',
-        description: 'You must be logged in to create an oasis.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
     try {
+      if (!auth.currentUser) {
+        throw new Error('Please sign in to create an oasis');
+      }
+
+      if (!selectedOasisType) {
+        throw new Error('Please select an oasis type');
+      }
+
       const imageUrl = await uploadImage();
       const color = `#${Math.floor(Math.random() * 16777215).toString(16)}`;
 
       const oasisData: OasisData = {
         name: initialOasisName,
         type: selectedOasisType,
-        types: [selectedOasisType],
         color,
         ...(imageUrl && { imageUrl }),
         theme: selectedTheme,
         themeMode: selectedThemeMode,
+        ownerId: auth.currentUser.uid,
+        tier: selectedTier,
         features: selectedFeatures,
         extraEmotes,
         extraStickers,
         monthlyPrice: calculateTotalPrice(),
-        tier: selectedTier,
-        ownerId: user.uid,
-        memberCount: 1
+        memberCount: 1,
+        status: 'active',
+        createdAt: new Date()
       };
 
-      const oasisId = await createOasis(user.uid, oasisData);
+      const oasisId = await createOasis(oasisData);
       
-      onCreateOasis(oasisData);
+      onCreateOasis({
+        ...oasisData,
+        id: oasisId
+      });
       onClose();
 
       toast({
@@ -314,7 +316,7 @@ const OasisCreationModal: React.FC<OasisCreationModalProps> = ({
       console.error('Error creating oasis:', error);
       toast({
         title: 'Error',
-        description: 'Failed to create oasis. Please try again.',
+        description: error instanceof Error ? error.message : 'Failed to create oasis. Please try again.',
         variant: 'destructive',
       });
     }

@@ -464,9 +464,9 @@ export default function DashboardContent({
                         maxWidth: '100%'
                       }}
                     >
-                      {oasis.map((oasisItem) => (
+                      {oasis.map((oasisItem, index) => (
                         <motion.div
-                          key={`created-${oasisItem.id}`}
+                          key={`created-${oasisItem.id || index}`}
                           initial={{ opacity: 0, scale: 0.9 }}
                           animate={{ opacity: 1, scale: 1 }}
                           transition={{ duration: 0.3 }}
@@ -488,9 +488,9 @@ export default function DashboardContent({
                         maxWidth: '100%'
                       }}
                     >
-                      {joinedOasis.map((oasisItem) => (
+                      {joinedOasis.map((oasisItem, index) => (
                         <motion.div
-                          key={`joined-${oasisItem.id}`}
+                          key={`joined-${oasisItem.id || index}`}
                           initial={{ opacity: 0, scale: 0.9 }}
                           animate={{ opacity: 1, scale: 1 }}
                           transition={{ duration: 0.3 }}
@@ -777,7 +777,7 @@ export default function DashboardContent({
 
   return (
     <main 
-      className="h-screen overflow-y-auto"
+      className="h-screen overflow-y-auto pr-60"
       style={{
         background: themeColors.background,
         color: themeColors.text,

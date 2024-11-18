@@ -14,11 +14,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { db, rtdb } from '@/firebase';
-import { collection, query, onSnapshot, doc, getDoc } from 'firebase/firestore';
-import { ref, onValue } from 'firebase/database';
+import { collection, query, onSnapshot, doc, getDoc, setDoc } from 'firebase/firestore';
+import { ref, onValue, get } from 'firebase/database';
 import { useAuth } from '@/lib/auth';
 import { useUserRole } from '@/hooks/useUserRole';
 import BannedList from './MemberManagementSidebar/BannedList';
+import { ThemeColors } from '@/themes';
 
 interface Member {
   id: string;
@@ -48,22 +49,43 @@ const MemberList: React.FC<{ oasisId: string; themeColors: ThemeColors }> = ({
   useEffect(() => {
     if (!oasisId) return;
 
-    // Listen for member updates in Firestore
     const membersRef = collection(db, 'oasis', oasisId, 'members');
     const membersQuery = query(membersRef);
     
     // Listen for presence updates in Realtime Database
-    const presenceRef = ref(rtdb, `presence/${oasisId}`);
+    const globalPresenceRef = ref(rtdb, 'presence/global');
+    const oasisPresenceRef = ref(rtdb, `presence/${oasisId}`);
 
     const unsubscribeMembers = onSnapshot(membersQuery, async (snapshot) => {
       const membersList: Member[] = [];
       
       for (const docSnapshot of snapshot.docs) {
         const data = docSnapshot.data();
-        // Fetch user profile data
         const userRef = doc(db, 'users', docSnapshot.id);
         const userDoc = await getDoc(userRef);
         const userData = userDoc.exists() ? userDoc.data() : null;
+        
+        // Check if member document exists, if not create it
+        const memberRef = doc(db, 'oasis', oasisId, 'members', docSnapshot.id);
+        const memberDoc = await getDoc(memberRef);
+        
+        if (!memberDoc.exists()) {
+          // Create member document with default values
+          await setDoc(memberRef, {
+            displayName: userData?.displayName || 'Unknown User',
+            photoURL: userData?.photoURL || null,
+            role: 'member',
+            joinedAt: new Date(),
+            permissions: ['send_messages'], // Default permissions
+          });
+        }
+        
+        // Get presence data
+        const globalPresenceSnapshot = await get(ref(rtdb, `presence/global/${docSnapshot.id}`));
+        const oasisPresenceSnapshot = await get(ref(rtdb, `presence/${oasisId}/${docSnapshot.id}`));
+        
+        const globalPresence = globalPresenceSnapshot.val();
+        const oasisPresence = oasisPresenceSnapshot.val();
         
         membersList.push({
           id: docSnapshot.id,
@@ -71,34 +93,44 @@ const MemberList: React.FC<{ oasisId: string; themeColors: ThemeColors }> = ({
           photoURL: userData?.photoURL || data.photoURL,
           role: data.role || 'member',
           joinedAt: data.joinedAt?.toDate() || new Date(),
-          online: false,
-          lastSeen: undefined
+          online: globalPresence?.online || oasisPresence?.online || false,
+          lastSeen: globalPresence?.lastSeen ? new Date(globalPresence.lastSeen) : undefined
         });
       }
 
       setMembers(membersList);
+      const onlineMembers = membersList.filter(member => member.online);
+      setOnlineCount(onlineMembers.length);
     });
 
-    // Listen for presence changes
-    onValue(presenceRef, (snapshot) => {
-      const presenceData = snapshot.val() || {};
-      let onlineUsers = 0;
-
-      setMembers(prevMembers => 
-        prevMembers.map(member => {
-          const presence = presenceData[member.id];
-          if (presence?.online) onlineUsers++;
+    // Listen for real-time presence changes in both locations
+    const handlePresenceUpdate = () => {
+      setMembers(prevMembers => {
+        const updatedMembers = prevMembers.map(async member => {
+          const globalPresenceSnapshot = await get(ref(rtdb, `presence/global/${member.id}`));
+          const oasisPresenceSnapshot = await get(ref(rtdb, `presence/${oasisId}/${member.id}`));
+          
+          const globalPresence = globalPresenceSnapshot.val();
+          const oasisPresence = oasisPresenceSnapshot.val();
           
           return {
             ...member,
-            online: !!presence?.online,
-            lastSeen: presence?.lastSeen ? new Date(presence.lastSeen) : undefined
+            online: globalPresence?.online || oasisPresence?.online || false
           };
-        })
-      );
+        });
+        
+        Promise.all(updatedMembers).then(resolvedMembers => {
+          const onlineCount = resolvedMembers.filter(member => member.online).length;
+          setOnlineCount(onlineCount);
+          setMembers(resolvedMembers);
+        });
+        
+        return prevMembers; // Return previous state while updating
+      });
+    };
 
-      setOnlineCount(onlineUsers);
-    });
+    onValue(globalPresenceRef, handlePresenceUpdate);
+    onValue(oasisPresenceRef, handlePresenceUpdate);
 
     return () => {
       unsubscribeMembers();
@@ -112,128 +144,104 @@ const MemberList: React.FC<{ oasisId: string; themeColors: ThemeColors }> = ({
     return false;
   };
 
+  const getRoleBadgeStyle = (role: string) => {
+    switch (role) {
+      case 'owner':
+        return {
+          bg: `${themeColors.primary}40`,
+          text: themeColors.primary,
+          label: 'Owner'
+        };
+      case 'administrator':
+        return {
+          bg: `${themeColors.secondary}40`,
+          text: themeColors.secondary,
+          label: 'Admin'
+        };
+      case 'moderator':
+        return {
+          bg: 'rgba(168, 85, 247, 0.4)',
+          text: '#A855F7',
+          label: 'Mod'
+        };
+      default:
+        return {
+          bg: 'rgba(107, 114, 128, 0.4)',
+          text: '#9CA3AF',
+          label: 'Member'
+        };
+    }
+  };
+
+  const renderMemberItem = (member: Member) => {
+    const roleBadge = getRoleBadgeStyle(member.role);
+
+    return (
+      <div
+        key={member.id}
+        className="flex items-center justify-between px-2 py-1 rounded hover:bg-gray-800 group"
+      >
+        <div className="flex items-center space-x-3">
+          <div className="relative">
+            <Avatar className="h-8 w-8">
+              <AvatarImage src={member.photoURL} />
+              <AvatarFallback>
+                {member.displayName[0]?.toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <div 
+              className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-gray-900 ${
+                member.online ? 'bg-green-500' : 'bg-gray-500'
+              }`} 
+            />
+          </div>
+          <div className="flex flex-col">
+            <span className={`text-sm ${member.online ? 'text-gray-200' : 'text-gray-400'}`}>
+              {member.displayName}
+            </span>
+            <div 
+              className="text-xs px-2 rounded-full"
+              style={{ 
+                backgroundColor: roleBadge.bg,
+                color: roleBadge.text
+              }}
+            >
+              {roleBadge.label}
+            </div>
+          </div>
+        </div>
+
+        {canManageRole(member.role) && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100"
+              >
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem>Manage Roles</DropdownMenuItem>
+              <DropdownMenuItem className="text-red-400">
+                Remove Member
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+    );
+  };
+
   const filteredMembers = members.filter(member =>
     member.displayName.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Group members by role and online status
-  const groupedMembers = {
-    owner: filteredMembers.filter(m => m.role === 'owner'),
-    administrator: filteredMembers.filter(m => m.role === 'administrator'),
-    moderator: filteredMembers.filter(m => m.role === 'moderator'),
-    member: filteredMembers.filter(m => m.role === 'member'),
-  };
-
-  const roleLabels = {
+  const roleLabels: Record<Member['role'], string> = {
     owner: 'Owner',
     administrator: 'Administrators',
     moderator: 'Moderators',
     member: 'Members',
-  };
-
-  const renderMemberGroup = (role: keyof typeof groupedMembers) => {
-    const roleMembers = groupedMembers[role];
-    if (roleMembers.length === 0) return null;
-
-    const onlineMembers = roleMembers.filter(m => m.online);
-    const offlineMembers = roleMembers.filter(m => !m.online);
-
-    return (
-      <div key={role} className="mb-4">
-        <h3 className="text-gray-400 text-sm font-medium px-2 mb-2">
-          {roleLabels[role]} — {roleMembers.length}
-        </h3>
-
-        {/* Online Members */}
-        {onlineMembers.map(member => (
-          <div
-            key={member.id}
-            className="flex items-center justify-between px-2 py-1 rounded hover:bg-gray-800 group"
-          >
-            <div className="flex items-center space-x-3">
-              <div className="relative">
-                <Avatar className="h-8 w-8">
-                  <AvatarImage src={member.photoURL} />
-                  <AvatarFallback>
-                    {member.displayName[0]?.toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-gray-900" />
-              </div>
-              <div>
-                <span className="text-gray-200">{member.displayName}</span>
-              </div>
-            </div>
-
-            {canManageRole(member.role) && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100"
-                  >
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem>Manage Roles</DropdownMenuItem>
-                  <DropdownMenuItem className="text-red-400">
-                    Remove Member
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-          </div>
-        ))}
-
-        {/* Offline Members */}
-        {offlineMembers.map(member => (
-          <div
-            key={member.id}
-            className="flex items-center justify-between px-2 py-1 rounded hover:bg-gray-800 group"
-          >
-            <div className="flex items-center space-x-3">
-              <div className="relative">
-                <Avatar className="h-8 w-8">
-                  <AvatarImage src={member.photoURL} />
-                  <AvatarFallback>
-                    {member.displayName[0]?.toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="absolute bottom-0 right-0 w-3 h-3 bg-gray-500 rounded-full border-2 border-gray-900" />
-              </div>
-              <div>
-                <span className="text-gray-400">{member.displayName}</span>
-                {member.lastSeen && (
-                  <p className="text-xs text-gray-500">
-                    Last seen: {member.lastSeen.toLocaleString()}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {canManageRole(member.role) && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100"
-                  >
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem>Manage Roles</DropdownMenuItem>
-                  <DropdownMenuItem className="text-red-400">
-                    Remove Member
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-          </div>
-        ))}
-      </div>
-    );
   };
 
   return (
@@ -253,9 +261,19 @@ const MemberList: React.FC<{ oasisId: string; themeColors: ThemeColors }> = ({
         </div>
       </div>
 
-      {['owner', 'administrator', 'moderator', 'member'].map(role => 
-        renderMemberGroup(role as keyof typeof groupedMembers)
-      )}
+      {(['owner', 'administrator', 'moderator', 'member'] as const).map(role => {
+        const roleMembers = members.filter(m => m.role === role);
+        if (roleMembers.length === 0) return null;
+
+        return (
+          <div key={role} className="mb-4">
+            <h3 className="text-gray-400 text-sm font-medium px-2 mb-2">
+              {roleLabels[role]} — {roleMembers.length}
+            </h3>
+            {roleMembers.map(renderMemberItem)}
+          </div>
+        );
+      })}
     </div>
   );
 };
@@ -269,26 +287,31 @@ const MemberManagementSidebar: React.FC<MemberManagementSidebarProps> = ({
   const canSeeBannedList = userRole === 'owner' || userRole === 'administrator' || userRole === 'moderator';
 
   return (
-    <div className="w-60 border-l border-gray-800 flex flex-col bg-gray-900">
-      <Tabs defaultValue="members" className="flex-1">
-        <TabsList className="w-full bg-gray-800 rounded-none p-1 space-x-1">
+    <div 
+      className="fixed right-0 top-0 bottom-0 w-60 border-l border-gray-800 bg-gray-900 z-50 flex flex-col"
+      style={{ height: '100vh' }}
+    >
+      <Tabs defaultValue="members" className="flex-1 flex flex-col">
+        <TabsList className="sticky top-0 w-full bg-gray-800 rounded-none p-1 space-x-1 z-10">
           <TabsTrigger value="members">Members</TabsTrigger>
           {canSeeBannedList && <TabsTrigger value="banned">Banned</TabsTrigger>}
         </TabsList>
 
-        <TabsContent value="members" className="flex-1 mt-0">
-          <ScrollArea className="h-[calc(100vh-140px)]">
-            <MemberList oasisId={oasisId} themeColors={themeColors} />
-          </ScrollArea>
-        </TabsContent>
-
-        {canSeeBannedList && (
-          <TabsContent value="banned" className="flex-1 mt-0">
-            <ScrollArea className="h-[calc(100vh-140px)]">
-              <BannedList oasisId={oasisId} themeColors={themeColors} />
+        <div className="flex-1 overflow-hidden flex flex-col">
+          <TabsContent value="members" className="flex-1 m-0 h-full">
+            <ScrollArea className="h-[calc(100vh-48px)]">
+              <MemberList oasisId={oasisId} themeColors={themeColors} />
             </ScrollArea>
           </TabsContent>
-        )}
+
+          {canSeeBannedList && (
+            <TabsContent value="banned" className="flex-1 m-0 h-full">
+              <ScrollArea className="h-[calc(100vh-48px)]">
+                <BannedList oasisId={oasisId} themeColors={themeColors} />
+              </ScrollArea>
+            </TabsContent>
+          )}
+        </div>
       </Tabs>
     </div>
   );
